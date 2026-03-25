@@ -1,4 +1,4 @@
-package com.example.in_gps;
+package com.example.in_gps.api;
 
 import okhttp3.OkHttpClient;
 import okhttp3.logging.HttpLoggingInterceptor;
@@ -6,7 +6,7 @@ import retrofit2.Retrofit;
 import retrofit2.converter.gson.GsonConverterFactory;
 
 public class RetrofitClient {
-    private static final String BASE_URL = "http://43.203.215.33:8000/";
+    private static final String BASE_URL = "http://13.209.92.219:8000/";
     private static RetrofitClient instance;
     private ApiService apiService;
 
