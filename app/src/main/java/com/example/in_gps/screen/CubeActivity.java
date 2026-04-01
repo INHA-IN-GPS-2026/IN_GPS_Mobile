@@ -27,34 +27,68 @@ public class CubeActivity extends AppCompatActivity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
-    // ── TEST MODE: 각도를 조금씩 증가시켜 큐브 외형 확인 ──────────────────
-//    private float testX = 0f, testY = 0f, testZ = 0f;
-//    private static final float STEP = 0.5f;   // 한 번에 증가하는 각도 (도)
-//    private static final long TEST_INTERVAL_MS = 50; // 업데이트 주기 (ms)
-//
-//    private final Runnable testRunnable = new Runnable() {
-//        @Override
-//        public void run() {
-//            testX += STEP;
-//            testY += STEP * 0.7f;
-//            testZ += STEP * 0.4f;
-//
-//            renderer.setAngles(testX, testY, testZ);
-//
-//            tvX.setText(String.format("X (Roll)  : %6.1f°", testX));
-//            tvY.setText(String.format("Y (Pitch) : %6.1f°", testY));
-//            tvZ.setText(String.format("Z (Yaw)   : %6.1f°", testZ));
-//            tvDevice.setText("TEST MODE");
-//            tvStatus.setText("● TEST");
-//            tvStatus.setTextColor(0xFFFFD700);
-//
-//            handler.postDelayed(this, TEST_INTERVAL_MS);
-//        }
-//    };
-    // ── TEST MODE END ──────────────────────────────────────────────────────
+    // ── DUMMY DATA TEST MODE ────────────────────────────────────────────────
+    // ADXL335 실제 범위: X(Roll) -180~+180 / Y(Pitch) -90~+90 / Z(Tilt) -90~+90
+    private static final float[][] DUMMY_DATA = {
+        // [ X축(Roll) 단독: -180 ~ +180, 30° 간격 한 바퀴 ]
+        {   0f,   0f,   0f },   //  1. 기준
+        {  30f,   0f,   0f },   //  2. Roll +30
+        {  60f,   0f,   0f },   //  3. Roll +60
+        {  90f,   0f,   0f },   //  4. Roll +90
+        { 120f,   0f,   0f },   //  5. Roll +120
+        { 150f,   0f,   0f },   //  6. Roll +150
+        { 180f,   0f,   0f },   //  7. Roll ±180 (완전 뒤집기)
+        {-150f,   0f,   0f },   //  8. Roll -150
+        {-120f,   0f,   0f },   //  9. Roll -120
+        { -90f,   0f,   0f },   // 10. Roll -90
+        { -60f,   0f,   0f },   // 11. Roll -60
+        { -30f,   0f,   0f },   // 12. Roll -30
+        // [ Y축(Pitch) 단독: -90 ~ +90, 30° 간격 왕복 ]
+        {   0f,   0f,   0f },   // 13. 기준
+        {   0f,  30f,   0f },   // 14. Pitch +30
+        {   0f,  60f,   0f },   // 15. Pitch +60
+        {   0f,  90f,   0f },   // 16. Pitch +90 (최대)
+        {   0f,  60f,   0f },   // 17. Pitch +60
+        {   0f,  30f,   0f },   // 18. Pitch +30
+        {   0f, -30f,   0f },   // 19. Pitch -30
+        {   0f, -60f,   0f },   // 20. Pitch -60
+        {   0f, -90f,   0f },   // 21. Pitch -90 (최대)
+        // [ Z축(Tilt) 단독: -90 ~ +90, 30° 간격 왕복 ]
+        {   0f,   0f,   0f },   // 22. 기준
+        {   0f,   0f,  30f },   // 23. Tilt +30
+        {   0f,   0f,  60f },   // 24. Tilt +60
+        {   0f,   0f,  90f },   // 25. Tilt +90 (최대)
+        {   0f,   0f, -90f },   // 26. Tilt -90 (최대)
+        {   0f,   0f, -60f },   // 27. Tilt -60
+        {   0f,   0f, -30f },   // 28. Tilt -30
+        // [ 복합 자세 ]
+        { 120f,  60f,  45f },   // 29. 복합 (X 범위 활용)
+        {-120f, -60f, -45f },   // 30. 복합 반전
+    };
+
+    private int dummyIndex = 0;
+
+    private final Runnable dummyRunnable = new Runnable() {
+        @Override
+        public void run() {
+            float[] d = DUMMY_DATA[dummyIndex];
+            renderer.setAngles(d[0], d[1], d[2]);
+
+            tvX.setText(String.format("X (Roll)  : %6.1f°", d[0]));
+            tvY.setText(String.format("Y (Pitch) : %6.1f°", d[1]));
+            tvZ.setText(String.format("Z (Tilt)  : %6.1f°", d[2]));
+            tvDevice.setText(String.format("DUMMY %02d / %02d", dummyIndex + 1, DUMMY_DATA.length));
+            tvStatus.setText("● DUMMY");
+            tvStatus.setTextColor(0xFFFFD700);
+
+            dummyIndex = (dummyIndex + 1) % DUMMY_DATA.length;
+            handler.postDelayed(this, INTERVAL_MS);
+        }
+    };
+    // ── DUMMY DATA TEST MODE END ────────────────────────────────────────────
 
 
-    // ── 기존: API 폴링 ──────────────────────────────────────────────────────
+    // ── API 폴링 ────────────────────────────────────────────────────────────
     private static final long INTERVAL_MS = 2000;
     private static final String DEVICE_ID = "esp_32";
 
@@ -81,7 +115,7 @@ public class CubeActivity extends AppCompatActivity {
 
                                 tvX.setText(String.format("X (Roll)  : %6.1f°", data.angleX));
                                 tvY.setText(String.format("Y (Pitch) : %6.1f°", data.angleY));
-                                tvZ.setText(String.format("Z (Yaw)   : %6.1f°", data.angleZ));
+                                tvZ.setText(String.format("Z (Tilt)  : %6.1f°", data.angleZ));
                                 tvDevice.setText(data.deviceId);
                                 tvStatus.setText("● LIVE");
                                 tvStatus.setTextColor(0xFF56D364);
@@ -118,8 +152,8 @@ public class CubeActivity extends AppCompatActivity {
         glView.setRenderer(renderer);
         glView.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
 
-         startPolling(); // 기존 API 폴링 — 테스트 중 비활성화
-//        handler.post(testRunnable); // TEST MODE
+        startPolling();                   // LIVE: API 폴링
+//        handler.post(dummyRunnable);       // TEST: 더미 데이터 순환
     }
 
     @Override
@@ -132,8 +166,8 @@ public class CubeActivity extends AppCompatActivity {
     protected void onPause() {
         super.onPause();
         glView.onPause();
-//        handler.removeCallbacks(testRunnable); // TEST MODE
-        handler.removeCallbacks(pollRunnable); // 기존 API 폴링
+        handler.removeCallbacks(dummyRunnable);
+        handler.removeCallbacks(pollRunnable);
     }
 
     @Override
@@ -142,4 +176,3 @@ public class CubeActivity extends AppCompatActivity {
         handler.removeCallbacksAndMessages(null);
     }
 }
-

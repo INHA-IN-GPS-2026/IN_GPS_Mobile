@@ -1,55 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/color_surface"
     tools:context=".screen.MainActivity">
 
-    <com.github.mikephil.charting.charts.LineChart
-        android:id="@+id/Verifying_graph"
+    <androidx.fragment.app.FragmentContainerView
+        android:id="@+id/fragment_container"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintLeft_toLeftOf="parent"
-        app:layout_constraintRight_toRightOf="parent"
-        app:layout_constraintHeight_percent="0.3"
-        android:layout_marginTop="30dp"
-        android:layout_marginLeft="30dp"
-        android:layout_marginRight="30dp"/>
+        android:layout_weight="1" />
 
-    <TextView
-        android:id="@+id/test_Text"
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottom_nav"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:layout_constraintTop_toBottomOf="@id/Verifying_graph"
-        app:layout_constraintLeft_toLeftOf="@id/Verifying_graph"
-        app:layout_constraintRight_toRightOf="@id/Verifying_graph"
-        android:textSize="24sp"
-        android:gravity="center"
-        android:layout_marginTop="30dp"
-        android:text="test"/>
+        android:background="@color/white"
+        app:menu="@menu/bottom_nav_menu"
+        app:itemIconTint="@color/nav_icon_color"
+        app:itemTextColor="@color/nav_icon_color"
+        app:elevation="8dp" />
 
-    <Button
-        android:id="@+id/button_check"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        app:layout_constraintTop_toBottomOf="@id/test_Text"
-        app:layout_constraintLeft_toLeftOf="@id/test_Text"
-        app:layout_constraintRight_toRightOf="@id/test_Text"
-        android:text="CallingGet"
-        />
-
-    <Button
-        android:id="@+id/button_cube"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        app:layout_constraintTop_toBottomOf="@id/button_check"
-        app:layout_constraintLeft_toLeftOf="@id/button_check"
-        app:layout_constraintRight_toRightOf="@id/button_check"
-        android:layout_marginTop="12dp"
-        android:text="3D 자세 뷰어"
-        />
-
-</androidx.constraintlayout.widget.ConstraintLayout>
+</LinearLayout>

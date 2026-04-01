@@ -159,10 +159,10 @@ public class CubeRenderer implements GLSurfaceView.Renderer {
     public void onDrawFrame(GL10 gl) {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
 
-        // Smooth interpolation
-        smoothX += (rotX - smoothX) * SMOOTH;
-        smoothY += (rotY - smoothY) * SMOOTH;
-        smoothZ += (rotZ - smoothZ) * SMOOTH;
+        // Smooth interpolation (shortest-path angle wrapping)
+        smoothX = lerpAngle(smoothX, rotX, SMOOTH);
+        smoothY = lerpAngle(smoothY, rotY, SMOOTH);
+        smoothZ = lerpAngle(smoothZ, rotZ, SMOOTH);
 
         // Model matrix: apply Euler ZYX rotation
         Matrix.setIdentityM(model, 0);
@@ -192,6 +192,16 @@ public class CubeRenderer implements GLSurfaceView.Renderer {
     }
 
     // ── Helper ─────────────────────────────────────────────────────────────
+    /** 최단 경로로 각도를 보간 (±180 경계 래핑 처리) */
+    private static float lerpAngle(float current, float target, float alpha) {
+        float delta = ((target - current) % 360f + 540f) % 360f - 180f;
+        return current + delta * alpha;
+    }
+    private static float lerp2Angle(float current, float target, float alpha){
+        float delta = ((target - current) % 360f +540f) % 360f - 240f;
+        return current + delta * alpha;
+    }
+
     private static int compileShader(int type, String src) {
         int shader = GLES20.glCreateShader(type);
         GLES20.glShaderSource(shader, src);
