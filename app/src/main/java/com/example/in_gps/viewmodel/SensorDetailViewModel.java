@@ -12,12 +12,15 @@ import androidx.lifecycle.ViewModelProvider;
 import com.example.in_gps.model.TemperatureModel;
 import com.example.in_gps.repository.TemperatureRepository;
 
+import java.util.List;
+
 public class SensorDetailViewModel extends ViewModel {
 
     private static final long POLL_INTERVAL_MS = 5000;
 
     private final String deviceId;
     private final MutableLiveData<TemperatureModel> temperatureData = new MutableLiveData<>();
+    private final MutableLiveData<List<TemperatureModel>> periodData = new MutableLiveData<>();
     private final TemperatureRepository repository = new TemperatureRepository();
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -36,6 +39,14 @@ public class SensorDetailViewModel extends ViewModel {
 
     public LiveData<TemperatureModel> getTemperatureData() {
         return temperatureData;
+    }
+
+    public LiveData<List<TemperatureModel>> getPeriodData() {
+        return periodData;
+    }
+
+    public void loadPeriod(int days) {
+        repository.fetchPeriod(deviceId, days, periodData);
     }
 
     @Override

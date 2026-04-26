@@ -20,6 +20,12 @@ public interface ApiService {
             @Query("limit") int limit
     );
 
+    @GET("temperature/chart")
+    Call<TemperatureResponse> getTemperatureChart(
+            @Query("device_id") String deviceId,
+            @Query("days") int days
+    );
+
     @GET("devices/{device_id}/logs")
     Call<DeviceLogResponse> getDeviceLogs(
             @Path("device_id") String deviceId,
