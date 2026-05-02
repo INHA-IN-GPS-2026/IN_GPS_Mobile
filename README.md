@@ -53,15 +53,7 @@
 - 상태별 카운트 (정상 / 경고 / 위험 / 전체)
 - 30초 간격 자동 폴링
 
-### 4. 3D 자세 시각화
-- OpenGL ES 2.0 기반 3D 큐브 렌더링
-- ADXL335 3축 가속도계 데이터 반영
-  - X축 (Roll): -180° ~ +180°
-  - Y축 (Pitch): -90° ~ +90°
-  - Z축 (Tilt): -90° ~ +90°
-- 2초 간격 자동 폴링
-
-### 5. 폴링 주기 설정
+### 4. 폴링 주기 설정
 - NumberPicker를 통한 폴링 주기 사용자 설정
 
 ---
@@ -73,7 +65,6 @@
 | 네트워크 | Retrofit 2.9.0, OkHttp 4.11.0 |
 | 직렬화 | GSON |
 | 차트 | MPAndroidChart v3.1.0 |
-| 3D 렌더링 | OpenGL ES 2.0 |
 | 아키텍처 컴포넌트 | AndroidX Lifecycle (LiveData, ViewModel) |
 | UI | Material Design 3, RecyclerView, Fragment |
 | 비동기 처리 | Handler / Looper (Main Thread Polling) |
@@ -209,8 +200,6 @@ IN_GPS/
 │       │   │   └── TemperatureRepository.java  # 온도 데이터 접근
 │       │   ├── screen/
 │       │   │   ├── MainActivity.java           # 메인 액티비티 (하단 내비게이션)
-│       │   │   ├── CubeActivity.java           # 3D 큐브 액티비티
-│       │   │   └── CubeRenderer.java           # OpenGL ES 렌더러
 │       │   ├── utils/                          # 유틸리티 (예정)
 │       │   └── viewmodel/
 │       │       ├── DeviceListViewModel.java    # 장치 목록 ViewModel
@@ -278,8 +267,8 @@ Handler 기반 폴링 시작/중지 메서드 제공.
 |------|---------|
 | 1일 (1D) | 시간별 raw 데이터 |
 | 7일 (7D) | 일별 집계 |
-| 30일 (30D) | 일별 평균 |
-| 1년 (1Y) | 월별 평균 |
+| 30일 (30D) | 일별 평균+최대 |
+| 1년 (1Y) | 월별 평균+최대 |
 
 ---
 
@@ -289,7 +278,7 @@ Handler 기반 폴링 시작/중지 메서드 제공.
 ```java
 String device_id       // 장치 고유 ID
 String equipment_id    // 설비 ID
-String status          // "normal" | "warning" | "critical"
+String status          // "normal" | "warning" | "disconnect"
 String installed_on    // 설치일
 String last_seen_at    // 마지막 통신 시각
 String created_at
@@ -341,11 +330,6 @@ DeviceListFragment에서 장치 선택 시 이동하는 상세 화면:
 - 2채널 라인 차트 (MPAndroidChart)
 - 1D / 7D / 30D / 1Y 기간 선택 칩
 - 현재 온도 및 이벤트 상태 표시
-
-### CubeActivity
-별도 액티비티로 진입하는 3D 시각화 화면:
-- GLSurfaceView + 커스텀 OpenGL ES 2.0 렌더러
-- 실시간 오일러 각도 표시
 
 ---
 
