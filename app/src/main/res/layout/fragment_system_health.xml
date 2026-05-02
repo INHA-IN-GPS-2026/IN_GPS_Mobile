@@ -16,9 +16,9 @@
         android:paddingTop="12dp"
         android:paddingBottom="8dp">
 
-        <!-- PieChart card -->
+        <!-- BarChart card -->
         <com.google.android.material.card.MaterialCardView
-            android:id="@+id/card_pie_chart"
+            android:id="@+id/card_bar_chart"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
@@ -30,8 +30,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp"
-                android:gravity="center">
+                android:padding="16dp">
 
                 <TextView
                     android:layout_width="match_parent"
@@ -42,11 +41,10 @@
                     android:textSize="14sp"
                     android:textStyle="bold" />
 
-                <com.github.mikephil.charting.charts.PieChart
-                    android:id="@+id/pie_chart"
-                    android:layout_width="200dp"
-                    android:layout_height="200dp"
-                    android:layout_gravity="center" />
+                <com.github.mikephil.charting.charts.BarChart
+                    android:id="@+id/bar_chart"
+                    android:layout_width="match_parent"
+                    android:layout_height="180dp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

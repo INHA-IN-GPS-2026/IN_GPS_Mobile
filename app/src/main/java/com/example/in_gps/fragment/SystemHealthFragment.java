@@ -14,18 +14,27 @@ import androidx.lifecycle.ViewModelProvider;
 
 import com.example.in_gps.R;
 import com.example.in_gps.viewmodel.SystemHealthViewModel;
-import com.github.mikephil.charting.charts.PieChart;
-import com.github.mikephil.charting.data.PieData;
-import com.github.mikephil.charting.data.PieDataSet;
-import com.github.mikephil.charting.data.PieEntry;
+import com.github.mikephil.charting.charts.BarChart;
+import com.github.mikephil.charting.components.XAxis;
+import com.github.mikephil.charting.data.BarData;
+import com.github.mikephil.charting.data.BarDataSet;
+import com.github.mikephil.charting.data.BarEntry;
+import com.github.mikephil.charting.formatter.IndexAxisValueFormatter;
+import com.github.mikephil.charting.formatter.ValueFormatter;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class SystemHealthFragment extends Fragment {
 
+    private static final int COLOR_NORMAL   = Color.parseColor("#34A853");
+    private static final int COLOR_WARNING  = Color.parseColor("#FBBC04");
+    private static final int COLOR_CRITICAL = Color.parseColor("#EA4335");
+    private static final int COLOR_AXIS     = Color.parseColor("#9E9E9E");
+
     private SystemHealthViewModel viewModel;
-    private PieChart pieChart;
+    private BarChart barChart;
     private TextView tvCountNormal;
     private TextView tvCountWarning;
     private TextView tvCountCritical;
@@ -41,13 +50,13 @@ public class SystemHealthFragment extends Fragment {
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 
-        pieChart = view.findViewById(R.id.pie_chart);
-        tvCountNormal = view.findViewById(R.id.tv_count_normal);
-        tvCountWarning = view.findViewById(R.id.tv_count_warning);
+        barChart = view.findViewById(R.id.bar_chart);
+        tvCountNormal   = view.findViewById(R.id.tv_count_normal);
+        tvCountWarning  = view.findViewById(R.id.tv_count_warning);
         tvCountCritical = view.findViewById(R.id.tv_count_critical);
-        tvTotalDevices = view.findViewById(R.id.tv_total_devices);
+        tvTotalDevices  = view.findViewById(R.id.tv_total_devices);
 
-        setupPieChart();
+        setupBarChart();
 
         viewModel = new ViewModelProvider(this).get(SystemHealthViewModel.class);
         viewModel.getDeviceStats().observe(getViewLifecycleOwner(), stats -> {
@@ -55,42 +64,61 @@ public class SystemHealthFragment extends Fragment {
             tvCountWarning.setText(String.valueOf(stats.warning));
             tvCountCritical.setText(String.valueOf(stats.critical));
             tvTotalDevices.setText(String.valueOf(stats.total));
-            updatePieChart(stats);
+            updateBarChart(stats);
         });
     }
 
-    private void setupPieChart() {
-        pieChart.getDescription().setEnabled(false);
-        pieChart.setDrawHoleEnabled(true);
-        pieChart.setHoleRadius(40f);
-        pieChart.setTransparentCircleRadius(45f);
-        pieChart.setDrawEntryLabels(false);
-        pieChart.getLegend().setEnabled(true);
-        pieChart.setUsePercentValues(false);
+    private void setupBarChart() {
+        barChart.getDescription().setEnabled(false);
+        barChart.getLegend().setEnabled(false);
+        barChart.setTouchEnabled(false);
+        barChart.setDrawBorders(false);
+        barChart.setDrawGridBackground(false);
+        barChart.setExtraBottomOffset(8f);
+        barChart.setNoDataText("데이터 없음");
+
+        XAxis xAxis = barChart.getXAxis();
+        xAxis.setPosition(XAxis.XAxisPosition.BOTTOM);
+        xAxis.setDrawGridLines(false);
+        xAxis.setDrawAxisLine(false);
+        xAxis.setGranularity(1f);
+        xAxis.setValueFormatter(new IndexAxisValueFormatter(new String[]{"정상", "경고", "위험"}));
+        xAxis.setTextColor(COLOR_AXIS);
+        xAxis.setTextSize(12f);
+
+        barChart.getAxisLeft().setDrawGridLines(false);
+        barChart.getAxisLeft().setDrawAxisLine(false);
+        barChart.getAxisLeft().setTextColor(COLOR_AXIS);
+        barChart.getAxisLeft().setGranularity(1f);
+        barChart.getAxisLeft().setAxisMinimum(0f);
+        barChart.getAxisLeft().setValueFormatter(new ValueFormatter() {
+            @Override public String getFormattedValue(float value) {
+                return String.valueOf((int) value);
+            }
+        });
+        barChart.getAxisRight().setEnabled(false);
     }
 
-    private void updatePieChart(SystemHealthViewModel.DeviceStats stats) {
-        List<PieEntry> entries = new ArrayList<>();
-        if (stats.normal > 0) entries.add(new PieEntry(stats.normal, "정상"));
-        if (stats.warning > 0) entries.add(new PieEntry(stats.warning, "경고"));
-        if (stats.critical > 0) entries.add(new PieEntry(stats.critical, "위험"));
+    private void updateBarChart(SystemHealthViewModel.DeviceStats stats) {
+        List<BarEntry> entries = new ArrayList<>();
+        entries.add(new BarEntry(0, stats.normal));
+        entries.add(new BarEntry(1, stats.warning));
+        entries.add(new BarEntry(2, stats.critical));
 
-        if (entries.isEmpty()) {
-            pieChart.clear();
-            pieChart.invalidate();
-            return;
-        }
+        BarDataSet dataSet = new BarDataSet(entries, "");
+        dataSet.setColors(COLOR_NORMAL, COLOR_WARNING, COLOR_CRITICAL);
+        dataSet.setValueTextSize(11f);
+        dataSet.setValueTextColor(COLOR_AXIS);
+        dataSet.setValueFormatter(new ValueFormatter() {
+            @Override public String getFormattedValue(float value) {
+                return String.valueOf((int) value);
+            }
+        });
 
-        PieDataSet dataSet = new PieDataSet(entries, "");
-        dataSet.setColors(
-                Color.parseColor("#34A853"),
-                Color.parseColor("#FBBC04"),
-                Color.parseColor("#EA4335")
-        );
-        dataSet.setValueTextSize(12f);
-        dataSet.setValueTextColor(Color.WHITE);
+        BarData barData = new BarData(dataSet);
+        barData.setBarWidth(0.5f);
 
-        pieChart.setData(new PieData(dataSet));
-        pieChart.invalidate();
+        barChart.setData(barData);
+        barChart.invalidate();
     }
 }

@@ -23,12 +23,8 @@ public class TemperatureModel {
     public String createdAt;
 
     // 일별 집계 응답 전용 (aggregated=true 일 때만 값 존재)
-    @SerializedName("temp1_min")
-    public Float temp1Min;
     @SerializedName("temp1_max")
     public Float temp1Max;
-    @SerializedName("temp2_min")
-    public Float temp2Min;
     @SerializedName("temp2_max")
     public Float temp2Max;
 }
