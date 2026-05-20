@@ -11,19 +11,21 @@ import com.example.in_gps.repository.DeviceRepository;
 
 public class SystemHealthViewModel extends ViewModel {
 
-    private static final long POLL_INTERVAL_MS = 30_000;
+    private static final long POLL_INTERVAL_MS = 3_000;
 
     public static class DeviceStats {
         public final int normal;
         public final int warning;
         public final int critical;
+        public final int disconnected;
         public final int total;
 
-        public DeviceStats(int normal, int warning, int critical) {
+        public DeviceStats(int normal, int warning, int critical, int disconnected) {
             this.normal = normal;
             this.warning = warning;
             this.critical = critical;
-            this.total = normal + warning + critical;
+            this.disconnected = disconnected;
+            this.total = normal + warning + critical + disconnected;
         }
     }
 
@@ -35,13 +37,14 @@ public class SystemHealthViewModel extends ViewModel {
         @Override
         public void run() {
             repository.fetchDevices(devices -> {
-                int normal = 0, warning = 0, critical = 0;
+                int normal = 0, warning = 0, critical = 0, disconnected = 0;
                 for (com.example.in_gps.model.DeviceModel d : devices) {
                     if ("normal".equalsIgnoreCase(d.status)) normal++;
                     else if ("warning".equalsIgnoreCase(d.status)) warning++;
                     else if ("critical".equalsIgnoreCase(d.status)) critical++;
+                    else if ("disconnected".equalsIgnoreCase(d.status)) disconnected++;
                 }
-                deviceStats.postValue(new DeviceStats(normal, warning, critical));
+                deviceStats.postValue(new DeviceStats(normal, warning, critical, disconnected));
             });
             handler.postDelayed(this, POLL_INTERVAL_MS);
         }

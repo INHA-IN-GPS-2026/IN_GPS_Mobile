@@ -14,7 +14,7 @@ import java.util.List;
 
 public class DeviceListViewModel extends ViewModel {
 
-    private static final long POLL_INTERVAL_MS = 30_000;
+    private static final long POLL_INTERVAL_MS = 3_000;
 
     private final MutableLiveData<List<DeviceModel>> devices = new MutableLiveData<>();
     private final DeviceRepository repository = new DeviceRepository();

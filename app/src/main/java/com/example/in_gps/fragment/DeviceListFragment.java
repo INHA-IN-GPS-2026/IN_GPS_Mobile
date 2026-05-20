@@ -36,7 +36,8 @@ public class DeviceListFragment extends Fragment {
 
         adapter = new DeviceAdapter(device -> {
             getParentFragmentManager().beginTransaction()
-                    .replace(R.id.fragment_container, SensorDetailFragment.newInstance("esp_32"))
+                    .replace(R.id.fragment_container,
+                            SensorDetailTestFragment.newInstance(device.deviceId))
                     .addToBackStack(null)
                     .commit();
         });

@@ -25,6 +25,10 @@
     <color name="color_critical_bg">#FCE8E6</color>
     <color name="color_critical_text">#C5221F</color>
 
+    <color name="color_disconnected">#9AA0A6</color>
+    <color name="color_disconnected_bg">#F1F3F4</color>
+    <color name="color_disconnected_text">#5F6368</color>
+
     <!-- Text -->
     <color name="color_text_primary">#202124</color>
     <color name="color_text_secondary">#5F6368</color>

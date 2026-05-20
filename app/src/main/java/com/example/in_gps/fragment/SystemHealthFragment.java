@@ -28,16 +28,18 @@ import java.util.Locale;
 
 public class SystemHealthFragment extends Fragment {
 
-    private static final int COLOR_NORMAL   = Color.parseColor("#34A853");
-    private static final int COLOR_WARNING  = Color.parseColor("#FBBC04");
-    private static final int COLOR_CRITICAL = Color.parseColor("#EA4335");
-    private static final int COLOR_AXIS     = Color.parseColor("#9E9E9E");
+    private static final int COLOR_NORMAL       = Color.parseColor("#34A853");
+    private static final int COLOR_WARNING      = Color.parseColor("#FBBC04");
+    private static final int COLOR_CRITICAL     = Color.parseColor("#EA4335");
+    private static final int COLOR_DISCONNECTED = Color.parseColor("#9AA0A6");
+    private static final int COLOR_AXIS         = Color.parseColor("#9E9E9E");
 
     private SystemHealthViewModel viewModel;
     private BarChart barChart;
     private TextView tvCountNormal;
     private TextView tvCountWarning;
     private TextView tvCountCritical;
+    private TextView tvCountDisconnected;
     private TextView tvTotalDevices;
 
     @Override
@@ -50,11 +52,12 @@ public class SystemHealthFragment extends Fragment {
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 
-        barChart = view.findViewById(R.id.bar_chart);
-        tvCountNormal   = view.findViewById(R.id.tv_count_normal);
-        tvCountWarning  = view.findViewById(R.id.tv_count_warning);
-        tvCountCritical = view.findViewById(R.id.tv_count_critical);
-        tvTotalDevices  = view.findViewById(R.id.tv_total_devices);
+        barChart            = view.findViewById(R.id.bar_chart);
+        tvCountNormal       = view.findViewById(R.id.tv_count_normal);
+        tvCountWarning      = view.findViewById(R.id.tv_count_warning);
+        tvCountCritical     = view.findViewById(R.id.tv_count_critical);
+        tvCountDisconnected = view.findViewById(R.id.tv_count_disconnected);
+        tvTotalDevices      = view.findViewById(R.id.tv_total_devices);
 
         setupBarChart();
 
@@ -63,6 +66,7 @@ public class SystemHealthFragment extends Fragment {
             tvCountNormal.setText(String.valueOf(stats.normal));
             tvCountWarning.setText(String.valueOf(stats.warning));
             tvCountCritical.setText(String.valueOf(stats.critical));
+            tvCountDisconnected.setText(String.valueOf(stats.disconnected));
             tvTotalDevices.setText(String.valueOf(stats.total));
             updateBarChart(stats);
         });
@@ -82,7 +86,7 @@ public class SystemHealthFragment extends Fragment {
         xAxis.setDrawGridLines(false);
         xAxis.setDrawAxisLine(false);
         xAxis.setGranularity(1f);
-        xAxis.setValueFormatter(new IndexAxisValueFormatter(new String[]{"정상", "경고", "위험"}));
+        xAxis.setValueFormatter(new IndexAxisValueFormatter(new String[]{"정상", "경고", "위험", "끊김"}));
         xAxis.setTextColor(COLOR_AXIS);
         xAxis.setTextSize(12f);
 
@@ -104,9 +108,10 @@ public class SystemHealthFragment extends Fragment {
         entries.add(new BarEntry(0, stats.normal));
         entries.add(new BarEntry(1, stats.warning));
         entries.add(new BarEntry(2, stats.critical));
+        entries.add(new BarEntry(3, stats.disconnected));
 
         BarDataSet dataSet = new BarDataSet(entries, "");
-        dataSet.setColors(COLOR_NORMAL, COLOR_WARNING, COLOR_CRITICAL);
+        dataSet.setColors(COLOR_NORMAL, COLOR_WARNING, COLOR_CRITICAL, COLOR_DISCONNECTED);
         dataSet.setValueTextSize(11f);
         dataSet.setValueTextColor(COLOR_AXIS);
         dataSet.setValueFormatter(new ValueFormatter() {

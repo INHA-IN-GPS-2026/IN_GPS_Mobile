@@ -60,6 +60,7 @@ public class DeviceAdapter extends RecyclerView.Adapter<DeviceAdapter.ViewHolder
         if ("normal".equalsIgnoreCase(status)) return "정상 운영 중";
         if ("warning".equalsIgnoreCase(status)) return "경고";
         if ("critical".equalsIgnoreCase(status)) return "위험";
+        if ("disconnected".equalsIgnoreCase(status)) return "연결 끊김";
         return status != null ? status : "--";
     }
 
@@ -70,6 +71,8 @@ public class DeviceAdapter extends RecyclerView.Adapter<DeviceAdapter.ViewHolder
             return view.getContext().getResources().getColor(R.color.color_warning, null);
         if ("critical".equalsIgnoreCase(status))
             return view.getContext().getResources().getColor(R.color.color_critical, null);
+        if ("disconnected".equalsIgnoreCase(status))
+            return view.getContext().getResources().getColor(R.color.color_text_secondary, null);
         return view.getContext().getResources().getColor(R.color.color_text_secondary, null);
     }
 
