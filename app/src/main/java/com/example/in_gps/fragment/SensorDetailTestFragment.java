@@ -16,6 +16,7 @@ import com.example.in_gps.R;
 import com.example.in_gps.model.TemperatureModel;
 import com.example.in_gps.viewmodel.SensorDetailTestViewModel;
 import com.github.mikephil.charting.charts.LineChart;
+import com.github.mikephil.charting.components.Legend;
 import com.github.mikephil.charting.components.XAxis;
 import com.github.mikephil.charting.components.YAxis;
 import com.github.mikephil.charting.data.Entry;
@@ -46,10 +47,15 @@ public class SensorDetailTestFragment extends Fragment {
     private static final int COLOR_RMSX  = Color.parseColor("#E53935");
     private static final int COLOR_RMSY  = Color.parseColor("#43A047");
     private static final int COLOR_RMSZ  = Color.parseColor("#1E88E5");
+    private static final int COLOR_RMS_TOTAL = Color.parseColor("#8E24AA");
     private static final int COLOR_AXIS  = Color.parseColor("#9E9E9E");
 
     /** Temperature SMA window. 1초 주기 raw → MA_WINDOW초 평균. 짝수보다 홀수가 위상 대칭. */
     private static final int MA_WINDOW = 5;
+
+    /** 온도 차트 Y축 최소 표시 폭(°C). 데이터 변동이 이보다 작으면 이 폭으로 확장해
+        써미스터 jitter가 자동 스케일에 의해 과장돼 보이지 않게 한다. */
+    private static final float TEMP_MIN_RANGE = 10f;
 
     /** Catmull-Rom 보간 분할 수. 인접 raw 점 사이에 SPLINE_SUBDIVIDE개의 보간 점을 끼움. */
     private static final int SPLINE_SUBDIVIDE = 4;
@@ -60,7 +66,8 @@ public class SensorDetailTestFragment extends Fragment {
     private SensorDetailTestViewModel viewModel;
 
     private LineChart chartTemperature;
-    private LineChart chartVibration;
+    private LineChart chartVibrationTotal;
+    private LineChart chartVibrationX, chartVibrationY, chartVibrationZ;
     private TextView tvDeviceId, tvLastUpdate;
     private TextView tvNowTemp1, tvNowTemp2;
     private TextView tvNowRmsX, tvNowRmsY, tvNowRmsZ;
@@ -93,11 +100,17 @@ public class SensorDetailTestFragment extends Fragment {
         tvNowRmsX        = view.findViewById(R.id.tv_now_rms_x);
         tvNowRmsY        = view.findViewById(R.id.tv_now_rms_y);
         tvNowRmsZ        = view.findViewById(R.id.tv_now_rms_z);
-        chartTemperature = view.findViewById(R.id.chart_temperature);
-        chartVibration   = view.findViewById(R.id.chart_vibration);
+        chartTemperature    = view.findViewById(R.id.chart_temperature);
+        chartVibrationTotal = view.findViewById(R.id.chart_vibration_total);
+        chartVibrationX     = view.findViewById(R.id.chart_vibration_x);
+        chartVibrationY     = view.findViewById(R.id.chart_vibration_y);
+        chartVibrationZ     = view.findViewById(R.id.chart_vibration_z);
 
         setupChart(chartTemperature, "°C");
-        setupChart(chartVibration, "mg");
+        setupChart(chartVibrationTotal, "mg");
+        setupChart(chartVibrationX, "mg");
+        setupChart(chartVibrationY, "mg");
+        setupChart(chartVibrationZ, "mg");
 
         String deviceId = requireArguments().getString(ARG_DEVICE_ID, "--");
         tvDeviceId.setText(deviceId);
@@ -174,18 +187,18 @@ public class SensorDetailTestFragment extends Fragment {
         tvLastUpdate.setText("최근 갱신: " + extractHHmmss(latest.createdAt));
 
         // X축 라벨 재구축 (HH:mm:ss).
-        // X축은 [0, CHART_X_RANGE-1]로 고정하고, 데이터는 오른쪽 끝(최신)에 정렬되도록
-        // 부족한 만큼 앞쪽을 빈 라벨로 패딩한다. 이렇게 해야 데이터가 차오르는 동안에도
-        // 축 눈금이 흔들리지 않음.
+        // X축은 [0, CHART_X_RANGE-1]로 고정. 좌측 정렬 — 데이터는 x=0부터 채우고
+        // 부족한 만큼(n<60) 뒤쪽을 빈 라벨로 패딩한다. 그래야 데이터가 차오르는 동안에도
+        // 축 눈금이 흔들리지 않음. 최신값은 우측이 아니라 "현재까지 채워진 데이터의 끝"에 위치.
         xLabels.clear();
-        int pad = Math.max(0, CHART_X_RANGE - ordered.size());
-        for (int i = 0; i < pad; i++) xLabels.add("");
         for (TemperatureModel m : ordered) {
             xLabels.add(extractHHmmss(m.createdAt));
         }
+        int pad = Math.max(0, CHART_X_RANGE - ordered.size());
+        for (int i = 0; i < pad; i++) xLabels.add("");
 
         renderTemperatureChart(ordered);
-        renderVibrationChart(ordered);
+        renderVibrationCharts(ordered);
     }
 
     private void renderTemperatureChart(List<TemperatureModel> ordered) {
@@ -206,8 +219,9 @@ public class SensorDetailTestFragment extends Fragment {
         float[] temp1Smoothed = movingAverage(temp1, MA_WINDOW);
         float[] temp2Smoothed = movingAverage(temp2, MA_WINDOW);
 
-        // 오른쪽 정렬: 데이터가 60개 미만이어도 최신값은 항상 X축 우측 끝에 위치.
-        int offset = Math.max(0, CHART_X_RANGE - n);
+        // 좌측 정렬: 데이터는 x=0부터 채우고 우측은 데이터 수가 부족할 때 비워둔다.
+        // 최신값(=ordered의 마지막 원소)은 x = n - 1 에 위치.
+        int offset = 0;
 //        for (int i = 0; i < n; i++) {
 //            ds1.addEntry(new Entry(offset + i, temp1Smoothed[i]));
 //            ds2.addEntry(new Entry(offset + i, temp2Smoothed[i]));
@@ -238,38 +252,137 @@ public class SensorDetailTestFragment extends Fragment {
         ds2.setDrawCircles(false);
         for (float[] p : temp1Dense) ds1.addEntry(new Entry(offset + p[0], p[1]));
         for (float[] p : temp2Dense) ds2.addEntry(new Entry(offset + p[0], p[1]));
+
+        // 현재 시점 마커: spline 곡선은 점이 모두 꺼져 있어 "지금 값이 어디인지" 직관적으로
+        // 보이지 않음. 별도 single-point LineDataSet으로 가장 최신 raw 위치(=좌측 정렬에선
+        // 데이터가 차오른 끝, 즉 x = n - 1)에 큰 원만 찍어 현재값을 강조한다. 선과 legend는 숨김.
+        float latestX = offset + (n - 1);
+        LineDataSet marker1 = makeLatestMarker(COLOR_TEMP1, latestX, temp1Smoothed[n - 1]);
+        LineDataSet marker2 = makeLatestMarker(COLOR_TEMP2, latestX, temp2Smoothed[n - 1]);
+
         List<ILineDataSet> sets = new ArrayList<>();
         sets.add(ds1);
         sets.add(ds2);
+        sets.add(marker1);
+        sets.add(marker2);
         chartTemperature.setData(new LineData(sets));
         chartTemperature.getXAxis().setAxisMinimum(-0.5f);
         chartTemperature.getXAxis().setAxisMaximum(CHART_X_RANGE - 0.5f);
+        applyTempYAxisRange(temp1Smoothed, temp2Smoothed);
         chartTemperature.notifyDataSetChanged();
         chartTemperature.invalidate();
     }
 
-    private void renderVibrationChart(List<TemperatureModel> ordered) {
-        LineDataSet dsX = makeLineDataSet("RMS X", COLOR_RMSX);
-        LineDataSet dsY = makeLineDataSet("RMS Y", COLOR_RMSY);
-        LineDataSet dsZ = makeLineDataSet("RMS Z", COLOR_RMSZ);
+    /**
+     * 온도 차트 Y축 범위를 최소 TEMP_MIN_RANGE(°C) 폭으로 보정.
+     * 데이터 변동이 그보다 작으면 평균을 중심으로 폭을 강제 확장해, 작은 jitter가
+     * 자동 스케일에 의해 화면 가득 확대돼 노이즈처럼 보이는 것을 막는다.
+     */
+    private void applyTempYAxisRange(float[] a, float[] b) {
+        float max = -Float.MAX_VALUE, min = Float.MAX_VALUE;
+        boolean has = false;
+        for (float[] arr : new float[][]{a, b}) {
+            for (float v : arr) {
+                if (v > max) max = v;
+                if (v < min) min = v;
+                has = true;
+            }
+        }
 
-        int offset = Math.max(0, CHART_X_RANGE - ordered.size());
+        YAxis yAxis = chartTemperature.getAxisLeft();
+        if (!has) {
+            yAxis.resetAxisMinimum();
+            yAxis.resetAxisMaximum();
+            return;
+        }
+
+        float range = max - min;
+        if (range < TEMP_MIN_RANGE) {
+            float center = (max + min) / 2f;
+            max = center + TEMP_MIN_RANGE / 2f;
+            min = center - TEMP_MIN_RANGE / 2f;
+            range = TEMP_MIN_RANGE;
+        }
+        float pad = range * 0.15f;   // 위아래 15% 여백
+        yAxis.setAxisMinimum(min - pad);
+        yAxis.setAxisMaximum(max + pad);
+    }
+
+    /** ADXL335 RMS를 축별로 분리된 3개 차트에 각각 렌더링.
+        축마다 Y축을 독립적으로 auto-scale하므로 진폭이 작은 축도 또렷이 보인다. */
+    private void renderVibrationCharts(List<TemperatureModel> ordered) {
+        renderTotalChart(ordered);
+        renderOneAxis(chartVibrationX, ordered, Axis.X, "RMS X", COLOR_RMSX);
+        renderOneAxis(chartVibrationY, ordered, Axis.Y, "RMS Y", COLOR_RMSY);
+        renderOneAxis(chartVibrationZ, ordered, Axis.Z, "RMS Z", COLOR_RMSZ);
+    }
+
+    /** 합성 진동 크기 = √(X² + Y² + Z²). 방향 무관한 종합 진동 레벨(overall level)을
+        한 줄로 보여준다. X/Y/Z 중 하나라도 없는 샘플은 건너뛴다. */
+    private void renderTotalChart(List<TemperatureModel> ordered) {
+        LineDataSet ds = makeLineDataSet("RMS √(X²+Y²+Z²)", COLOR_RMS_TOTAL);
+
+        Float lastVal = null;
+        int lastIdx = -1;
         for (int i = 0; i < ordered.size(); i++) {
             TemperatureModel m = ordered.get(i);
-            if (m.rmsX != null) dsX.addEntry(new Entry(offset + i, m.rmsX));
-            if (m.rmsY != null) dsY.addEntry(new Entry(offset + i, m.rmsY));
-            if (m.rmsZ != null) dsZ.addEntry(new Entry(offset + i, m.rmsZ));
+            if (m.rmsX == null || m.rmsY == null || m.rmsZ == null) continue;
+            double x = m.rmsX, y = m.rmsY, z = m.rmsZ;
+            float mag = (float) Math.sqrt(x * x + y * y + z * z);
+            ds.addEntry(new Entry(i, mag));
+            lastVal = mag;
+            lastIdx = i;
         }
 
         List<ILineDataSet> sets = new ArrayList<>();
-        sets.add(dsX);
-        sets.add(dsY);
-        sets.add(dsZ);
-        chartVibration.setData(new LineData(sets));
-        chartVibration.getXAxis().setAxisMinimum(-0.5f);
-        chartVibration.getXAxis().setAxisMaximum(CHART_X_RANGE - 0.5f);
-        chartVibration.notifyDataSetChanged();
-        chartVibration.invalidate();
+        sets.add(ds);
+        if (lastVal != null) {
+            sets.add(makeLatestMarker(COLOR_RMS_TOTAL, lastIdx, lastVal));
+        }
+
+        chartVibrationTotal.setData(new LineData(sets));
+        chartVibrationTotal.getXAxis().setAxisMinimum(-0.5f);
+        chartVibrationTotal.getXAxis().setAxisMaximum(CHART_X_RANGE - 0.5f);
+        chartVibrationTotal.notifyDataSetChanged();
+        chartVibrationTotal.invalidate();
+    }
+
+    private enum Axis { X, Y, Z }
+
+    private void renderOneAxis(LineChart chart, List<TemperatureModel> ordered,
+                               Axis axis, String label, int color) {
+        LineDataSet ds = makeLineDataSet(label, color);
+
+        // 좌측 정렬: 데이터는 x=0부터 채움. n < CHART_X_RANGE인 동안은 우측이 비어 있다.
+        Integer lastVal = null;
+        int lastIdx = -1;
+        for (int i = 0; i < ordered.size(); i++) {
+            TemperatureModel m = ordered.get(i);
+            Integer v;
+            switch (axis) {
+                case X:  v = m.rmsX; break;
+                case Y:  v = m.rmsY; break;
+                default: v = m.rmsZ; break;
+            }
+            if (v != null) {
+                ds.addEntry(new Entry(i, v));
+                lastVal = v;
+                lastIdx = i;
+            }
+        }
+
+        List<ILineDataSet> sets = new ArrayList<>();
+        sets.add(ds);
+        // 현재값(가장 최신) 강조 마커
+        if (lastVal != null) {
+            sets.add(makeLatestMarker(color, lastIdx, lastVal.floatValue()));
+        }
+
+        chart.setData(new LineData(sets));
+        chart.getXAxis().setAxisMinimum(-0.5f);
+        chart.getXAxis().setAxisMaximum(CHART_X_RANGE - 0.5f);
+        chart.notifyDataSetChanged();
+        chart.invalidate();
     }
 
     // ── 헬퍼 ───────────────────────────────────────────────────────
@@ -284,6 +397,28 @@ public class SensorDetailTestFragment extends Fragment {
         ds.setDrawValues(false);
         ds.setMode(LineDataSet.Mode.LINEAR);
         return ds;
+    }
+
+    /**
+     * 현재 시점(=가장 최신값) 위치에만 점 하나를 찍는 LineDataSet.
+     * 선/값 라벨/하이라이트/legend는 모두 끄고 큰 원 1개만 표시.
+     */
+    private LineDataSet makeLatestMarker(int color, float x, float y) {
+        List<Entry> single = new ArrayList<>(1);
+        single.add(new Entry(x, y));
+        LineDataSet marker = new LineDataSet(single, "");
+        marker.setColor(Color.TRANSPARENT);
+        marker.setLineWidth(0f);
+        marker.setCircleColor(color);
+        marker.setCircleRadius(5f);
+        marker.setDrawCircles(true);
+        marker.setDrawCircleHole(true);
+        marker.setCircleHoleColor(Color.WHITE);
+        marker.setCircleHoleRadius(2.5f);
+        marker.setDrawValues(false);
+        marker.setHighlightEnabled(false);
+        marker.setForm(Legend.LegendForm.NONE);
+        return marker;
     }
 
     private List<Entry> catmullRomSpline(List<Entry> pts, int steps) {
