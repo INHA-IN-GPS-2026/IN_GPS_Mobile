@@ -14,9 +14,12 @@ import androidx.lifecycle.ViewModelProvider;
 
 import com.example.in_gps.R;
 import com.example.in_gps.model.TemperatureModel;
+import com.example.in_gps.util.ChartInterpolation;
+import com.example.in_gps.util.TempMarkerView;
 import com.example.in_gps.viewmodel.SensorDetailTestViewModel;
 import com.github.mikephil.charting.charts.LineChart;
 import com.github.mikephil.charting.components.Legend;
+import com.github.mikephil.charting.components.LimitLine;
 import com.github.mikephil.charting.components.XAxis;
 import com.github.mikephil.charting.components.YAxis;
 import com.github.mikephil.charting.data.Entry;
@@ -25,6 +28,7 @@ import com.github.mikephil.charting.data.LineDataSet;
 import com.github.mikephil.charting.formatter.ValueFormatter;
 import com.github.mikephil.charting.interfaces.datasets.ILineDataSet;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -49,15 +53,38 @@ public class SensorDetailTestFragment extends Fragment {
     private static final int COLOR_RMSZ  = Color.parseColor("#1E88E5");
     private static final int COLOR_RMS_TOTAL = Color.parseColor("#8E24AA");
     private static final int COLOR_AXIS  = Color.parseColor("#9E9E9E");
+    private static final int COLOR_DANGER = Color.parseColor("#E53935");
 
-    /** Temperature SMA window. 1초 주기 raw → MA_WINDOW초 평균. 짝수보다 홀수가 위상 대칭. */
-    private static final int MA_WINDOW = 5;
+    /** (구) Temperature SMA window. EMA 전환 후 미사용 — 되돌릴 때 참고용으로 남김. */
+    private static final int MA_WINDOW = 3;
+
+    /** Temperature EMA 평활 계수. y[n] = α·x[n] + (1−α)·y[n−1].
+        α 클수록 반응적(지연↓·잡음↑), 작을수록 평활(지연↑·잡음↓).
+        α=0.45 → 등가 SMA 윈도우 ≈ 3~4, 위상 지연 ≈ 1~1.5s.
+        써미스터가 우레탄폼에 묻혀 물리적 열 시상수가 크므로(신호가 이미 부드러움)
+        가벼운 EMA로도 ADC 지터는 충분히 억제됨. 근거: Docs/온도_응답지연_분석.md. */
+    private static final float EMA_ALPHA = 0.45f;
+
+    /** 재연결 판정용 데이터 공백 임계값(ms). 정상 주기는 1초이므로 5초 이상이면 재부팅/캘리브레이션 공백으로 본다. */
+    private static final long RECONNECT_GAP_MS = 5000L;
+    private static final SimpleDateFormat TS_FMT =
+            new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
 
     /** 온도 차트 Y축 최소 표시 폭(°C). 데이터 변동이 이보다 작으면 이 폭으로 확장해
         써미스터 jitter가 자동 스케일에 의해 과장돼 보이지 않게 한다. */
     private static final float TEMP_MIN_RANGE = 10f;
 
-    /** Catmull-Rom 보간 분할 수. 인접 raw 점 사이에 SPLINE_SUBDIVIDE개의 보간 점을 끼움. */
+    /** ADXL335 진동 차트 Y축 범위(mg). 기본 천장을 고정해 진동이 작을 때 자동 스케일이
+        미세 노이즈를 과장하는 문제를 막는다. 단, 데이터가 천장을 넘으면 그때만 상한을
+        데이터에 맞춰 확장한다(아래로는 항상 0mg 시작).
+        축별(X/Y/Z)은 150mg, 합성 √(X²+Y²+Z²)은 세 축 합이라 더 큰 250mg를 기본 천장으로 둔다. */
+    private static final float VIB_Y_MIN = 0f;
+    private static final float VIB_Y_BASE_MAX_AXIS  = 150f;
+    private static final float VIB_Y_BASE_MAX_TOTAL = 250f;
+    /** 데이터가 천장을 넘었을 때 상단 여백 비율. */
+    private static final float VIB_Y_PAD = 0.10f;
+
+    /** monotone cubic 보간 분할 수. 인접 raw 점 사이에 SPLINE_SUBDIVIDE개의 보간 점을 끼움. */
     private static final int SPLINE_SUBDIVIDE = 4;
 
     /** 차트 X축 고정 폭(=sliding window 크기). ViewModel의 limit과 동일해야 함. */
@@ -112,6 +139,24 @@ public class SensorDetailTestFragment extends Fragment {
         setupChart(chartVibrationY, "mg");
         setupChart(chartVibrationZ, "mg");
 
+        // 벤치마킹 B안(Netatmo): 온도 차트 터치 스크럽 — 시각·온도 말풍선
+        chartTemperature.setHighlightPerTapEnabled(true);
+        chartTemperature.setHighlightPerDragEnabled(true);
+        TempMarkerView marker = new TempMarkerView(requireContext(), (e, h) -> {
+            String time = "";
+            int i = Math.round(e.getX());
+            if (i >= 0 && i < xLabels.size()) time = xLabels.get(i);
+            String name = "";
+            if (chartTemperature.getData() != null && h.getDataSetIndex() >= 0
+                    && h.getDataSetIndex() < chartTemperature.getData().getDataSetCount()) {
+                name = chartTemperature.getData().getDataSetByIndex(h.getDataSetIndex()).getLabel();
+            }
+            return String.format(Locale.US, "%s %.1f°C%s",
+                    name, e.getY(), time.isEmpty() ? "" : " · " + time);
+        });
+        marker.setChartView(chartTemperature);
+        chartTemperature.setMarker(marker);
+
         String deviceId = requireArguments().getString(ARG_DEVICE_ID, "--");
         tvDeviceId.setText(deviceId);
 
@@ -141,7 +186,9 @@ public class SensorDetailTestFragment extends Fragment {
         xAxis.setGranularity(1f);
         xAxis.setDrawGridLines(false);
         xAxis.setDrawAxisLine(false);
-        xAxis.setLabelRotationAngle(-45f);
+        xAxis.setLabelRotationAngle(0f);          // 수평 라벨(대각선 X)
+        xAxis.setLabelCount(5, false);            // 수평에서 겹치지 않게 라벨 수 제한
+        xAxis.setAvoidFirstLastClipping(true);
         xAxis.setTextColor(COLOR_AXIS);
         xAxis.setTextSize(10f);
         xAxis.setValueFormatter(new ValueFormatter() {
@@ -177,6 +224,11 @@ public class SensorDetailTestFragment extends Fragment {
         List<TemperatureModel> ordered = new ArrayList<>(recentDesc);
         Collections.reverse(ordered);
 
+        // 재연결 감지: 5초 이상 데이터 공백(디바이스 재부팅/캘리브레이션 등)이 있으면,
+        // 마지막 공백 이후의 연속 구간만 남겨 그래프를 y축(x=0)부터 새로 시작한다.
+        ordered = trimToLastContiguousRun(ordered);
+        if (ordered.isEmpty()) return;
+
         // 현재값(가장 최신) — DESC 첫 row
         TemperatureModel latest = recentDesc.get(0);
         tvNowTemp1.setText(String.format(Locale.US, "%.2f °C", latest.temp1));
@@ -202,8 +254,8 @@ public class SensorDetailTestFragment extends Fragment {
     }
 
     private void renderTemperatureChart(List<TemperatureModel> ordered) {
-        LineDataSet ds1 = makeLineDataSet("Thermistor 1", COLOR_TEMP1);
-        LineDataSet ds2 = makeLineDataSet("Thermistor 2", COLOR_TEMP2);
+        LineDataSet ds1 = makeLineDataSet("표면", COLOR_TEMP1);
+        LineDataSet ds2 = makeLineDataSet("외부", COLOR_TEMP2);
 
         int n = ordered.size();
         float[] temp1 = new float[n];
@@ -215,9 +267,11 @@ public class SensorDetailTestFragment extends Fragment {
         }
 
         // Thermistor raw에는 ADC 양자화 + 환경 잡음에 의한 jitter가 섞여 시각적으로 떠 보임.
-        // SMA(Simple Moving Average)로 고주파 성분을 누른다. 위상 지연 ≈ (MA_WINDOW-1)/2 sec.
-        float[] temp1Smoothed = movingAverage(temp1, MA_WINDOW);
-        float[] temp2Smoothed = movingAverage(temp2, MA_WINDOW);
+        // EMA(지수이동평균)로 고주파 성분을 누른다. 최신값 가중이라 SMA보다 반응적.
+        // 위상 지연 ≈ (1−α)/α 샘플 ≈ 1.2s (α=0.45). 물리적 열 시상수가 지배적이므로
+        // 이 SW 지연은 보조분 — 자세한 분석은 Docs/온도_응답지연_분석.md.
+        float[] temp1Smoothed = ema(temp1, EMA_ALPHA);
+        float[] temp2Smoothed = ema(temp2, EMA_ALPHA);
 
         // 좌측 정렬: 데이터는 x=0부터 채우고 우측은 데이터 수가 부족할 때 비워둔다.
         // 최신값(=ordered의 마지막 원소)은 x = n - 1 에 위치.
@@ -227,29 +281,25 @@ public class SensorDetailTestFragment extends Fragment {
 //            ds2.addEntry(new Entry(offset + i, temp2Smoothed[i]));
 //        }
 
-        /* ── (옵션) Catmull-Rom spline 보간 ─────────────────────────────────────────
-         * MA 결과 점 사이를 cubic spline으로 보간해 dense points를 만들고 LINEAR로 잇는다.
-         * spline은 노이즈를 제거하지 않으므로 반드시 MA 뒤에 적용해야 jitter를 따라가는
-         * 곡선이 되지 않는다. Catmull-Rom은 control points를 정확히 지나며 끝점만
-         * reflect/clamp 처리(`P[-1]=P[0]`, `P[N]=P[N-1]`).
+        /* ── Monotone cubic (Fritsch–Carlson) 보간 ─────────────────────────────────
+         * EMA 결과 점 사이를 보간해 dense points를 만들고 LINEAR로 잇는다.
+         * spline은 노이즈를 제거하지 않으므로 반드시 EMA 뒤에 적용해야 jitter를 따라가는
+         * 곡선이 되지 않는다.
          *
-         * 활성화 방법: 위의 단순 entry 루프(`for (int i = 0; i < n; i++) ...`)를 지우고
-         * 아래 블록의 주석을 해제. dense 점은 빽빽하므로 circle 마커는 끄는 편이 가독성에 좋다.
+         * Catmull-Rom → monotone cubic 교체 이유: Catmull-Rom은 피크·평탄 경계에서
+         * 인접 점 범위를 벗어나는 오버슈트/물결(ripple)이 생겨 데이터에 없는 온도값이
+         * 그려질 수 있다. monotone cubic은 모든 원본 점을 정확히 지나면서 인접 두 점의
+         * [min, max]를 절대 벗어나지 않는다(위험 임계선 거짓 초과 불가).
          *
-         * float[][] temp1Dense = catmullRomSpline(temp1Smoothed, SPLINE_SUBDIVIDE);
-         * float[][] temp2Dense = catmullRomSpline(temp2Smoothed, SPLINE_SUBDIVIDE);
-         * ds1.setDrawCircles(false);
-         * ds2.setDrawCircles(false);
-         * for (float[] p : temp1Dense) ds1.addEntry(new Entry(offset + p[0], p[1]));
-         * for (float[] p : temp2Dense) ds2.addEntry(new Entry(offset + p[0], p[1]));
-         *
-         * 참고 — LineDataSet.Mode.CUBIC_BEZIER는 MPAndroidChart 렌더 시점에 자동 처리되지만
-         * segment 경계에서 미세 오버슈트가 생길 수 있어, 직접 Catmull-Rom으로 점을 만들어
-         * LINEAR로 그리는 방식을 선택. */
-        float[][] temp1Dense = catmullRomSpline(temp1Smoothed, SPLINE_SUBDIVIDE);
-        float[][] temp2Dense = catmullRomSpline(temp2Smoothed, SPLINE_SUBDIVIDE);
+         * LineDataSet.Mode.CUBIC_BEZIER를 안 쓰는 이유: 렌더 버그(점만 남고 선 미연결)
+         * + 오버슈트. dense 점을 직접 만들어 LINEAR로 그리는 방식은 이와 무관. */
+        float[][] temp1Dense = ChartInterpolation.monotoneCubicDense(temp1Smoothed, SPLINE_SUBDIVIDE);
+        float[][] temp2Dense = ChartInterpolation.monotoneCubicDense(temp2Smoothed, SPLINE_SUBDIVIDE);
         ds1.setDrawCircles(false);
         ds2.setDrawCircles(false);
+        // 보간 점은 실제 측정값이 아니므로 스크럽은 별도 scrubSet(정수 x)에만 스냅
+        ds1.setHighlightEnabled(false);
+        ds2.setHighlightEnabled(false);
         for (float[] p : temp1Dense) ds1.addEntry(new Entry(offset + p[0], p[1]));
         for (float[] p : temp2Dense) ds2.addEntry(new Entry(offset + p[0], p[1]));
 
@@ -260,17 +310,92 @@ public class SensorDetailTestFragment extends Fragment {
         LineDataSet marker1 = makeLatestMarker(COLOR_TEMP1, latestX, temp1Smoothed[n - 1]);
         LineDataSet marker2 = makeLatestMarker(COLOR_TEMP2, latestX, temp2Smoothed[n - 1]);
 
+        // Y축 범위를 먼저 확정 — 위험구역(A안) 음영의 상단(y축 최대)이 필요함
+        applyTempYAxisRange(temp1Smoothed, temp2Smoothed);
+
         List<ILineDataSet> sets = new ArrayList<>();
+
+        // 벤치마킹 A안(SensorPush): 위험 임계선 위 영역 옅은 빨강 음영.
+        // 실시간 뷰는 y축이 데이터 기준이라, 데이터가 임계 근처일 때만 구역이 보인다.
+        float threshold = getDangerThresholdC();
+        YAxis yAxis = chartTemperature.getAxisLeft();
+        if (yAxis.getAxisMaximum() > threshold) {
+            sets.add(dangerZone(-0.5f, CHART_X_RANGE - 0.5f, yAxis.getAxisMaximum(), threshold));
+        }
+        addDangerLimitLine(yAxis, threshold);
+
         sets.add(ds1);
         sets.add(ds2);
         sets.add(marker1);
         sets.add(marker2);
+
+        // 벤치마킹 B안(Netatmo): 터치 스크럽 — EMA 결과(정수 x)에만 스냅
+        sets.add(scrubSet(temp1Smoothed, "표면"));
+        sets.add(scrubSet(temp2Smoothed, "외부"));
+
         chartTemperature.setData(new LineData(sets));
         chartTemperature.getXAxis().setAxisMinimum(-0.5f);
         chartTemperature.getXAxis().setAxisMaximum(CHART_X_RANGE - 0.5f);
-        applyTempYAxisRange(temp1Smoothed, temp2Smoothed);
         chartTemperature.notifyDataSetChanged();
         chartTemperature.invalidate();
+    }
+
+    /** 위험 임계온도(°C). 설정에서 조절, 기본 40°C. */
+    private float getDangerThresholdC() {
+        return requireContext()
+                .getSharedPreferences("in_gps_prefs", android.content.Context.MODE_PRIVATE)
+                .getFloat("danger_threshold_c", 40f);
+    }
+
+    /** 위험 임계선(가는 빨강 점선). y축 범위 안에 있을 때만 그려진다. */
+    private void addDangerLimitLine(YAxis yAxis, float threshold) {
+        yAxis.removeAllLimitLines();
+        LimitLine line = new LimitLine(threshold,
+                String.format(Locale.US, "위험 %.0f°", threshold));
+        line.setLineColor(COLOR_DANGER);
+        line.setLineWidth(1.2f);
+        line.enableDashedLine(6f, 5f, 0f);
+        line.setLabelPosition(LimitLine.LimitLabelPosition.RIGHT_TOP);
+        line.setTextColor(COLOR_DANGER);
+        line.setTextSize(9f);
+        yAxis.addLimitLine(line);
+    }
+
+    /** A안: 임계선 위 영역을 옅은 빨강 면으로 채우는 데이터셋(선 투명). */
+    private LineDataSet dangerZone(float xMin, float xMax, float top, float threshold) {
+        List<Entry> pts = new ArrayList<>(2);
+        pts.add(new Entry(xMin, top));
+        pts.add(new Entry(xMax, top));
+        LineDataSet ds = new LineDataSet(pts, "");
+        ds.setColor(Color.TRANSPARENT);
+        ds.setLineWidth(0f);
+        ds.setDrawCircles(false);
+        ds.setDrawValues(false);
+        ds.setHighlightEnabled(false);
+        ds.setDrawFilled(true);
+        ds.setFillColor(COLOR_DANGER);
+        ds.setFillAlpha(26);
+        ds.setFillFormatter((d, p) -> threshold);
+        ds.setForm(Legend.LegendForm.NONE);
+        return ds;
+    }
+
+    /** B안: 스크럽 전용 투명 데이터셋 — EMA 평활값의 정수 x 위치에만 스냅. */
+    private LineDataSet scrubSet(float[] values, String label) {
+        List<Entry> pts = new ArrayList<>(values.length);
+        for (int i = 0; i < values.length; i++) pts.add(new Entry(i, values[i]));
+        LineDataSet ds = new LineDataSet(pts, label);
+        ds.setColor(Color.TRANSPARENT);
+        ds.setLineWidth(0f);
+        ds.setDrawCircles(false);
+        ds.setDrawValues(false);
+        ds.setHighlightEnabled(true);
+        ds.setDrawHorizontalHighlightIndicator(false);
+        ds.setDrawVerticalHighlightIndicator(true);
+        ds.setHighLightColor(COLOR_AXIS);
+        ds.setHighlightLineWidth(1f);
+        ds.setForm(Legend.LegendForm.NONE);
+        return ds;
     }
 
     /**
@@ -324,12 +449,14 @@ public class SensorDetailTestFragment extends Fragment {
 
         Float lastVal = null;
         int lastIdx = -1;
+        float dataMax = 0f;
         for (int i = 0; i < ordered.size(); i++) {
             TemperatureModel m = ordered.get(i);
             if (m.rmsX == null || m.rmsY == null || m.rmsZ == null) continue;
             double x = m.rmsX, y = m.rmsY, z = m.rmsZ;
             float mag = (float) Math.sqrt(x * x + y * y + z * z);
             ds.addEntry(new Entry(i, mag));
+            if (mag > dataMax) dataMax = mag;
             lastVal = mag;
             lastIdx = i;
         }
@@ -343,6 +470,7 @@ public class SensorDetailTestFragment extends Fragment {
         chartVibrationTotal.setData(new LineData(sets));
         chartVibrationTotal.getXAxis().setAxisMinimum(-0.5f);
         chartVibrationTotal.getXAxis().setAxisMaximum(CHART_X_RANGE - 0.5f);
+        applyVibYAxis(chartVibrationTotal, dataMax, VIB_Y_BASE_MAX_TOTAL);
         chartVibrationTotal.notifyDataSetChanged();
         chartVibrationTotal.invalidate();
     }
@@ -356,6 +484,7 @@ public class SensorDetailTestFragment extends Fragment {
         // 좌측 정렬: 데이터는 x=0부터 채움. n < CHART_X_RANGE인 동안은 우측이 비어 있다.
         Integer lastVal = null;
         int lastIdx = -1;
+        float dataMax = 0f;
         for (int i = 0; i < ordered.size(); i++) {
             TemperatureModel m = ordered.get(i);
             Integer v;
@@ -366,6 +495,7 @@ public class SensorDetailTestFragment extends Fragment {
             }
             if (v != null) {
                 ds.addEntry(new Entry(i, v));
+                if (v > dataMax) dataMax = v;
                 lastVal = v;
                 lastIdx = i;
             }
@@ -381,8 +511,20 @@ public class SensorDetailTestFragment extends Fragment {
         chart.setData(new LineData(sets));
         chart.getXAxis().setAxisMinimum(-0.5f);
         chart.getXAxis().setAxisMaximum(CHART_X_RANGE - 0.5f);
+        applyVibYAxis(chart, dataMax, VIB_Y_BASE_MAX_AXIS);
         chart.notifyDataSetChanged();
         chart.invalidate();
+    }
+
+    /** 진동 차트 Y축: 항상 0mg 시작. 기본 상한은 baseMax로 고정하되,
+        데이터가 그 천장을 넘으면 그때만 상한을 dataMax + 여백으로 확장한다. */
+    private void applyVibYAxis(LineChart chart, float dataMax, float baseMax) {
+        float top = baseMax;
+        if (dataMax > baseMax) {
+            top = dataMax * (1f + VIB_Y_PAD);
+        }
+        chart.getAxisLeft().setAxisMinimum(VIB_Y_MIN);
+        chart.getAxisLeft().setAxisMaximum(top);
     }
 
     // ── 헬퍼 ───────────────────────────────────────────────────────
@@ -421,74 +563,8 @@ public class SensorDetailTestFragment extends Fragment {
         return marker;
     }
 
-    private List<Entry> catmullRomSpline(List<Entry> pts, int steps) {
-        int n = pts.size();
-        if (n < 2) return new ArrayList<>(pts);
-        List<Entry> out = new ArrayList<>((n - 1) * steps + 1);
-        for (int i = 0; i < n - 1; i++) {
-            Entry p0 = pts.get(Math.max(0, i - 1));
-            Entry p1 = pts.get(i);
-            Entry p2 = pts.get(i + 1);
-            Entry p3 = pts.get(Math.min(n - 1, i + 2));
-            for (int s = 0; s < steps; s++) {
-                float t  = (float) s / steps;
-                float t2 = t * t, t3 = t2 * t;
-                float y = 0.5f * (2 * p1.getY()
-                        + (-p0.getY() + p2.getY()) * t
-                        + (2 * p0.getY() - 5 * p1.getY() + 4 * p2.getY() - p3.getY()) * t2
-                        + (-p0.getY() + 3 * p1.getY() - 3 * p2.getY() + p3.getY()) * t3);
-                float x = p1.getX() + (p2.getX() - p1.getX()) * t;
-                out.add(new Entry(x, y));
-            }
-        }
-        out.add(new Entry(pts.get(n - 1).getX(), pts.get(n - 1).getY()));
-        return out;
-    }
     private static String formatMg(Integer mg) {
         return mg == null ? "-- mg" : (mg + " mg");
-    }
-
-    /**
-     * Catmull-Rom spline 보간. 길이 N인 입력 y[] 의 인접 두 점 사이에 `subdivide` 등분의
-     * 보간 점을 끼워 넣고, 원본 점도 모두 포함한 (x, y) 쌍 시퀀스를 반환한다.
-     * x는 원본 인덱스를 기준으로 한 실수값 ([0, N-1] 범위).
-     * 끝점은 P[-1] = P[0], P[N] = P[N-1]로 reflect/clamp 처리.
-     *
-     * @return shape = [(N-1)*subdivide + 1][2], 각 원소 {x, y}
-     */
-    private static float[][] catmullRomSpline(float[] values, int subdivide) {
-        int n = values.length;
-        if (n == 0) return new float[0][2];
-        if (n == 1) return new float[][]{ {0f, values[0]} };
-        if (subdivide < 1) subdivide = 1;
-
-        int outLen = (n - 1) * subdivide + 1;
-        float[][] out = new float[outLen][2];
-        int idx = 0;
-        for (int i = 0; i < n - 1; i++) {
-            float p0 = values[Math.max(0, i - 1)];
-            float p1 = values[i];
-            float p2 = values[i + 1];
-            float p3 = values[Math.min(n - 1, i + 2)];
-            for (int s = 0; s < subdivide; s++) {
-                float t = (float) s / subdivide;
-                float t2 = t * t;
-                float t3 = t2 * t;
-                // 표준 Catmull-Rom basis (tension = 0.5)
-                float y = 0.5f * (
-                        (2f * p1)
-                                + (-p0 + p2) * t
-                                + (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2
-                                + (-p0 + 3f * p1 - 3f * p2 + p3) * t3
-                );
-                out[idx][0] = i + t;
-                out[idx][1] = y;
-                idx++;
-            }
-        }
-        out[outLen - 1][0] = n - 1;
-        out[outLen - 1][1] = values[n - 1];
-        return out;
     }
 
     /**
@@ -510,6 +586,52 @@ public class SensorDetailTestFragment extends Fragment {
             out[i] = sum / cnt;
         }
         return out;
+    }
+
+    /**
+     * 지수이동평균(EMA). out[0]=values[0], out[i]=α·values[i]+(1−α)·out[i−1].
+     * SMA와 달리 최신값에 더 큰 가중치를 줘 반응이 빠르고, α 하나로 반응성↔평활을 조절.
+     * 위상 지연 ≈ (1−α)/α 샘플. 시퀀스 길이는 보존된다.
+     */
+    private static float[] ema(float[] values, float alpha) {
+        int n = values.length;
+        float[] out = new float[n];
+        if (n == 0) return out;
+        if (alpha <= 0f || alpha >= 1f) {   // 방어: 범위 밖이면 평활 없이 통과
+            System.arraycopy(values, 0, out, 0, n);
+            return out;
+        }
+        out[0] = values[0];
+        for (int i = 1; i < n; i++) {
+            out[i] = alpha * values[i] + (1f - alpha) * out[i - 1];
+        }
+        return out;
+    }
+
+    /**
+     * ASC 정렬 리스트에서 5초 이상 공백을 기준으로 '마지막 연속 구간'만 반환.
+     * 디바이스가 꺼졌다 켜져 데이터가 끊긴 뒤 재개되면 이전 데이터는 버리고
+     * 최신 연속 구간만 남겨, 그래프가 y축(x=0)부터 새로 그려지도록 한다.
+     */
+    private List<TemperatureModel> trimToLastContiguousRun(List<TemperatureModel> asc) {
+        int runStart = 0;
+        for (int i = 1; i < asc.size(); i++) {
+            long prev = parseEpochMs(asc.get(i - 1).createdAt);
+            long cur  = parseEpochMs(asc.get(i).createdAt);
+            if (prev > 0 && cur > 0 && (cur - prev) > RECONNECT_GAP_MS) {
+                runStart = i;
+            }
+        }
+        return runStart == 0 ? asc : new ArrayList<>(asc.subList(runStart, asc.size()));
+    }
+
+    private static long parseEpochMs(String ts) {
+        if (ts == null || ts.length() < 19) return -1;
+        try {
+            return TS_FMT.parse(ts.replace('T', ' ').substring(0, 19)).getTime();
+        } catch (Exception e) {
+            return -1;
+        }
     }
 
     /** "YYYY-MM-DD HH:MM:SS" 또는 ISO 형식에서 HH:MM:SS만 추출. */

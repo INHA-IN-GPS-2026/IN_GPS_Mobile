@@ -3,9 +3,11 @@ package com.example.in_gps.repository;
 import androidx.lifecycle.MutableLiveData;
 
 import com.example.in_gps.api.RetrofitClient;
+import com.example.in_gps.model.AvailableDatesResponse;
 import com.example.in_gps.model.TemperatureModel;
 import com.example.in_gps.model.TemperatureResponse;
 
+import java.util.Collections;
 import java.util.List;
 
 import retrofit2.Call;
@@ -73,6 +75,53 @@ public class TemperatureRepository {
                     @Override
                     public void onFailure(Call<TemperatureResponse> call, Throwable t) {
                         // silently ignore
+                    }
+                });
+    }
+
+    /**
+     * 기간(시작~종료) 차트 조회. 날짜는 YYYY-MM-DD (종료일 포함).
+     * 서버가 span에 맞춰 분(1m)/일(1d) 집계 items를 반환한다.
+     */
+    public void fetchRange(String deviceId, String startDate, String endDate,
+                           MutableLiveData<List<TemperatureModel>> liveData) {
+        RetrofitClient.getInstance().getApiService()
+                .getTemperatureChartRange(deviceId, startDate, endDate)
+                .enqueue(new Callback<TemperatureResponse>() {
+                    @Override
+                    public void onResponse(Call<TemperatureResponse> call, Response<TemperatureResponse> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            liveData.postValue(response.body().items);
+                        } else {
+                            liveData.postValue(Collections.emptyList());
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<TemperatureResponse> call, Throwable t) {
+                        liveData.postValue(Collections.emptyList());
+                    }
+                });
+    }
+
+    /** 데이터가 존재하는 날짜 목록(캘린더에서 없는 날짜 표시용). */
+    public void fetchAvailableDates(String deviceId, MutableLiveData<List<String>> liveData) {
+        RetrofitClient.getInstance().getApiService()
+                .getAvailableDates(deviceId)
+                .enqueue(new Callback<AvailableDatesResponse>() {
+                    @Override
+                    public void onResponse(Call<AvailableDatesResponse> call, Response<AvailableDatesResponse> response) {
+                        if (response.isSuccessful() && response.body() != null
+                                && response.body().dates != null) {
+                            liveData.postValue(response.body().dates);
+                        } else {
+                            liveData.postValue(Collections.emptyList());
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<AvailableDatesResponse> call, Throwable t) {
+                        liveData.postValue(Collections.emptyList());
                     }
                 });
     }

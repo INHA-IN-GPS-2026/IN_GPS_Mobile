@@ -21,7 +21,7 @@ public class DeviceListFragment extends Fragment {
     private DeviceListViewModel viewModel;
     private DeviceAdapter adapter;
 
-    @Override
+     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
         return inflater.inflate(R.layout.fragment_device_list, container, false);
@@ -37,7 +37,7 @@ public class DeviceListFragment extends Fragment {
         adapter = new DeviceAdapter(device -> {
             getParentFragmentManager().beginTransaction()
                     .replace(R.id.fragment_container,
-                            SensorDetailTestFragment.newInstance(device.deviceId))
+                            SensorDetailFragment.newInstance(device.deviceId))
                     .addToBackStack(null)
                     .commit();
         });

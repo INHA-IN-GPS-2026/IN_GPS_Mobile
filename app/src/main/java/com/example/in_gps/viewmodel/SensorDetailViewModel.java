@@ -21,6 +21,7 @@ public class SensorDetailViewModel extends ViewModel {
     private final String deviceId;
     private final MutableLiveData<TemperatureModel> temperatureData = new MutableLiveData<>();
     private final MutableLiveData<List<TemperatureModel>> periodData = new MutableLiveData<>();
+    private final MutableLiveData<List<String>> availableDates = new MutableLiveData<>();
     private final TemperatureRepository repository = new TemperatureRepository();
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -45,8 +46,22 @@ public class SensorDetailViewModel extends ViewModel {
         return periodData;
     }
 
+    public LiveData<List<String>> getAvailableDates() {
+        return availableDates;
+    }
+
     public void loadPeriod(int days) {
         repository.fetchPeriod(deviceId, days, periodData);
+    }
+
+    /** 기간(시작~종료) 조회. 날짜는 YYYY-MM-DD (종료일 포함). 결과는 periodData로 전달. */
+    public void loadRange(String startDate, String endDate) {
+        repository.fetchRange(deviceId, startDate, endDate, periodData);
+    }
+
+    /** 캘린더 표시용 데이터 보유 날짜 목록 로드. */
+    public void loadAvailableDates() {
+        repository.fetchAvailableDates(deviceId, availableDates);
     }
 
     @Override

@@ -77,7 +77,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Thermistor 1"
+                        android:text="표면 온도"
                         android:textColor="#FF5722"
                         android:textSize="12sp" />
 
@@ -100,7 +100,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Thermistor 2"
+                        android:text="외부 온도"
                         android:textColor="#2196F3"
                         android:textSize="12sp" />
 
@@ -202,7 +202,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Thermistor (NTC1 / NTC2) · 최근 60초"
+                    android:text="표면 / 외부 온도 · 최근 60초"
                     android:textColor="@color/color_text_primary"
                     android:textStyle="bold"
                     android:textSize="13sp"

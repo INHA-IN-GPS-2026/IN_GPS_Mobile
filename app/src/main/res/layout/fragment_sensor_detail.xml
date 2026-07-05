@@ -55,6 +55,38 @@
                 android:text="1년" />
         </com.google.android.material.chip.ChipGroup>
 
+        <!-- 기간(캘린더) 선택 + 실시간 상세보기 버튼 행 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="12dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_pick_range"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="기간 선택"
+                app:icon="@drawable/ic_calendar"
+                app:iconGravity="textStart" />
+
+            <Space
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_realtime_detail"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="실시간 상세보기"
+                app:icon="@drawable/ic_timer"
+                app:iconGravity="textStart" />
+        </LinearLayout>
+
         <!-- Chart card -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/card_chart"
@@ -96,6 +128,31 @@
                         android:textSize="11sp" />
                 </LinearLayout>
 
+                <!-- 집계뷰(주/월/년/기간) 전용 센서 선택 칩 — 캡슐 바를 한 센서씩 표시 -->
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/chip_group_sensor"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone"
+                    app:singleSelection="true"
+                    app:selectionRequired="true">
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chip_sensor_surface"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="표면"
+                        android:checked="true" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chip_sensor_external"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="외부" />
+                </com.google.android.material.chip.ChipGroup>
+
                 <com.github.mikephil.charting.charts.LineChart
                     android:id="@+id/line_chart"
                     android:layout_width="match_parent"
@@ -117,43 +174,6 @@
                 android:layout_weight="1"
                 android:layout_marginEnd="6dp"
                 app:cardCornerRadius="12dp"
-                app:cardBackgroundColor="@color/color_frame_temp_bg"
-                app:cardElevation="0dp"
-                app:strokeWidth="0dp">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="코어 온도"
-                        android:textColor="@color/color_frame_temp_text"
-                        android:textSize="12sp"
-                        android:alpha="0.8" />
-
-                    <TextView
-                        android:id="@+id/tv_frame_temp"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:text="--°C"
-                        android:textColor="@color/color_frame_temp_text"
-                        android:textSize="24sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <!-- Ambient temp card -->
-            <com.google.android.material.card.MaterialCardView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="6dp"
-                app:cardCornerRadius="12dp"
                 app:cardBackgroundColor="@color/color_ambient_temp_bg"
                 app:cardElevation="0dp"
                 app:strokeWidth="0dp">
@@ -173,12 +193,49 @@
                         android:alpha="0.8" />
 
                     <TextView
-                        android:id="@+id/tv_ambient_temp"
+                        android:id="@+id/tv_surface_temp"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:text="--°C"
                         android:textColor="@color/color_ambient_temp_text"
+                        android:textSize="24sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Ambient temp card -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                app:cardCornerRadius="12dp"
+                app:cardBackgroundColor="@color/color_frame_temp_bg"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="외부 온도"
+                        android:textColor="@color/color_frame_temp_text"
+                        android:textSize="12sp"
+                        android:alpha="0.8" />
+
+                    <TextView
+                        android:id="@+id/tv_external_temp"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="--°C"
+                        android:textColor="@color/color_frame_temp_text"
                         android:textSize="24sp"
                         android:textStyle="bold" />
                 </LinearLayout>
