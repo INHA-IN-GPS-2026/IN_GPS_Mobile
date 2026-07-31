@@ -74,6 +74,18 @@ public class SensorDetailFragment extends Fragment {
 
     /** monotone cubic densify: 인접 버킷 점 사이 보간 분할 수(클수록 부드러움) */
     private static final int CURVE_SUBDIVIDE = 8;
+    /** 분단위(1분 버킷) 곡선용 — 점이 이미 촘촘해 분할 수를 줄임 */
+    private static final int CURVE_SUBDIVIDE_MINUTE = 2;
+
+    /** 분단위 뷰 버킷 크기(분) 및 선 끊김 판정 간격(x=시 단위).
+        서버가 1일 뷰에 이미 1m(분단위) 버킷으로 응답하므로(TemperatureRepository.BUCKET_MINUTE),
+        여기서 5분으로 재집계하면 서버가 보내준 해상도의 4/5를 클라이언트가 그냥 버리는 셈이었다.
+        1로 낮춰 서버 해상도를 그대로 사용 — 핀치줌으로 확대했을 때 실제로 더 자세히 보인다. */
+    private static final int MINUTE_SLOT_MIN = 1;
+    private static final float MINUTE_GAP_X = 0.2f;
+
+    /** true = 분단위 뷰(x축 단위가 '시'인 float). 스크럽 시각 표기 등에 사용 */
+    private boolean minuteAxis = false;
 
     private static final String[] MONTH_NAMES = {
         "1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"
@@ -82,7 +94,7 @@ public class SensorDetailFragment extends Fragment {
     private SensorDetailViewModel viewModel;
     private LineChart chart;
     private RangeOverlay rangeOverlay;
-    private TextView tvSurfaceTemp, tvExternalTemp, tvChartPeriodLabel;
+    private TextView tvSurfaceTemp, tvExternalTemp, tvChartPeriodLabel, tvChartLegend;
     private Chip chipEventStatus;
 
     private final ArrayList<String> xLabels = new ArrayList<>();
@@ -125,6 +137,7 @@ public class SensorDetailFragment extends Fragment {
         tvExternalTemp     = view.findViewById(R.id.tv_external_temp);
         chipEventStatus    = view.findViewById(R.id.chip_ai_status);
         tvChartPeriodLabel = view.findViewById(R.id.tv_chart_period_label);
+        tvChartLegend      = view.findViewById(R.id.tv_chart_legend);
 
         setupChart();
         setupRangeOverlay();
@@ -149,11 +162,18 @@ public class SensorDetailFragment extends Fragment {
         MaterialButton btnPickRange = view.findViewById(R.id.btn_pick_range);
         if (btnPickRange != null) btnPickRange.setOnClickListener(v -> showRangePicker());
 
-        // 실시간 상세보기(1초 polling 차트) — 다이얼로그로 표시
+        // 실시간 상세보기(1초 polling 차트) — 다이얼로그로 표시.
+        // 다이얼로그가 떠 있는 동안 이 화면의 5초 폴링은 정지(불필요한 중복 요청 방지),
+        // 닫히면 fragment result로 재개한다.
         MaterialButton btnRealtime = view.findViewById(R.id.btn_realtime_detail);
-        if (btnRealtime != null) btnRealtime.setOnClickListener(v ->
-                RealtimeDetailDialogFragment.newInstance(deviceId)
-                        .show(getChildFragmentManager(), "realtime_detail"));
+        if (btnRealtime != null) btnRealtime.setOnClickListener(v -> {
+            viewModel.stopPolling();
+            RealtimeDetailDialogFragment.newInstance(deviceId)
+                    .show(getChildFragmentManager(), "realtime_detail");
+        });
+        getChildFragmentManager().setFragmentResultListener(
+                RealtimeDetailDialogFragment.RESULT_CLOSED, getViewLifecycleOwner(),
+                (key, bundle) -> viewModel.startPolling());
 
         // 집계뷰(C안) 센서 선택 칩 — 캡슐 바를 한 센서씩 표시(둘 다 그리면 지저분)
         chipGroupSensor = view.findViewById(R.id.chip_group_sensor);
@@ -168,14 +188,55 @@ public class SensorDetailFragment extends Fragment {
             if (lastChartItems != null) reloadChart(lastChartItems);
         });
 
-        // 캘린더에서 데이터 없는 날짜를 비활성 표시하기 위해 보유 날짜 목록을 미리 로드
+        // 운영 정보 카드: 측정 주기 = 펌웨어 광고 주기(1초 고정)
+        TextView tvInterval = view.findViewById(R.id.tv_interval);
+        if (tvInterval != null) tvInterval.setText("1초");
+        TextView tvPeriod = view.findViewById(R.id.tv_period);
+
+        // 캘린더 비활성 표시용 보유 날짜 목록 로드.
+        // 운영 기간도 여기서 계산 — device.installed_on(시드 넣은 날짜)이 아니라
+        // '실제 데이터가 존재하는 첫 날짜' 기준이라 데이터와 항상 일치한다.
         viewModel.getAvailableDates().observe(getViewLifecycleOwner(), dates -> {
             availableDates.clear();
             if (dates != null) availableDates.addAll(dates);
+            if (tvPeriod != null) tvPeriod.setText(formatOperatingPeriod(availableDates));
         });
         viewModel.loadAvailableDates();
 
         loadPeriod(1);
+    }
+
+    /** 데이터 보유 날짜 목록의 최솟값 기준 "N일째 (yyyy.M.d~)". 데이터 없으면 "--". */
+    private String formatOperatingPeriod(List<String> dates) {
+        if (dates == null || dates.isEmpty()) return "--";
+        String first = null;
+        for (String d : dates) {
+            if (d == null || d.length() < 10) continue;
+            if (first == null || d.compareTo(first) < 0) first = d;   // "yyyy-MM-dd" 문자열 비교
+        }
+        if (first == null) return "--";
+        try {
+            Date d = FMT_DATE.parse(first.substring(0, 10));
+            if (d == null) return "--";
+            long days = (System.currentTimeMillis() - d.getTime()) / 86400000L + 1;
+            SimpleDateFormat md = new SimpleDateFormat("yyyy.M.d", Locale.getDefault());
+            return days + "일째 (" + md.format(d) + "~)";
+        } catch (Exception e) {
+            return "--";
+        }
+    }
+
+    // 폴링은 화면이 보이는 동안만 (백그라운드 네트워크/배터리 낭비 방지)
+    @Override
+    public void onStart() {
+        super.onStart();
+        if (viewModel != null) viewModel.startPolling();
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        if (viewModel != null) viewModel.stopPolling();
     }
 
     private void loadPeriod(int days) {
@@ -204,8 +265,16 @@ public class SensorDetailFragment extends Fragment {
         chart.setHighlightPerDragEnabled(true);
         TempMarkerView marker = new TempMarkerView(requireContext(), (e, h) -> {
             String x = "";
-            int i = Math.round(e.getX());
-            if (i >= 0 && i < xLabels.size()) x = xLabels.get(i);
+            if (minuteAxis) {
+                // 분단위 뷰: x = 시(float) → HH:mm으로 정확한 시각 표기
+                int hr = (int) e.getX();
+                int mn = Math.round((e.getX() - hr) * 60f);
+                if (mn == 60) { hr++; mn = 0; }
+                x = String.format(Locale.getDefault(), "%02d:%02d", hr, mn);
+            } else {
+                int i = Math.round(e.getX());
+                if (i >= 0 && i < xLabels.size()) x = xLabels.get(i);
+            }
             String name = "";
             if (chart.getData() != null && h.getDataSetIndex() >= 0
                     && h.getDataSetIndex() < chart.getData().getDataSetCount()) {
@@ -276,7 +345,7 @@ public class SensorDetailFragment extends Fragment {
             if (tvChartPeriodLabel != null) tvChartPeriodLabel.setText(rangeLabel);
         } else if (currentDays == 1) {
             totalSlots = 24;
-            buildHourlySlots(items, set1, set1Max, set1Min, set2, set2Max, set2Min, setWarn, setDisc);
+            buildMinuteSlots(items, set1, set1Max, set1Min, set2, set2Max, set2Min, setWarn, setDisc);
             xAxis.setLabelCount(7, false);
         } else if (currentDays == 7) {
             totalSlots = 7;
@@ -297,7 +366,7 @@ public class SensorDetailFragment extends Fragment {
         if (!rangeMode && tvChartPeriodLabel != null) {
             String label;
             switch (currentDays) {
-                case 1:   label = "오늘 24시간 · 평균·최대 (위험 표시)"; break;
+                case 1:   label = "오늘 24시간 · 1분 평균·최대";        break;
                 case 7:   label = "최근 7일 · 일별 평균·최대";          break;
                 case 30:  label = "최근 30일 · 주별 평균·최대";         break;
                 default:  label = "최근 12개월 · 월별 평균·최대";       break;
@@ -305,12 +374,19 @@ public class SensorDetailFragment extends Fragment {
             tvChartPeriodLabel.setText(label);
         }
 
-        chart.getXAxis().setAxisMinimum(-0.5f);
-        chart.getXAxis().setAxisMaximum(totalSlots - 0.5f);
-
-        // 뷰 구분: 집계뷰(주/월/년, 기간>1일) = C안(범위 캡슐 바 + 평균 점),
-        //          시간별 뷰(1일, 기간=1일)    = A안(위험구역 음영 + 곡선).
+        // 뷰 구분: 집계뷰(주/월/년, 기간>1일) = C안, 분단위 뷰(1일/단일날짜) = A+B
         boolean aggregate = rangeMode ? rangeSpanDays > 1 : currentDays >= 7;
+        minuteAxis = !aggregate;
+
+        if (minuteAxis) {
+            // 분단위 뷰: x 단위 = 시(hour, float 0~24)
+            chart.getXAxis().setAxisMinimum(-0.3f);
+            chart.getXAxis().setAxisMaximum(24f);
+        } else {
+            chart.getXAxis().setAxisMinimum(-0.5f);
+            chart.getXAxis().setAxisMaximum(totalSlots - 0.5f);
+        }
+
         boolean surface = selectedSensorSurface;
         LineDataSet selAvg = surface ? set1    : set2;
         LineDataSet selMax = surface ? set1Max : set2Max;
@@ -351,7 +427,8 @@ public class SensorDetailFragment extends Fragment {
 
         // A안(SensorPush): 임계선 위 영역을 옅은 빨강 면으로 — 곡선/바 뒤에 깔리도록 먼저 추가
         if (thresholdVisible) {
-            dataSets.add(dangerZone(-0.5f, totalSlots - 0.5f, yA.getAxisMaximum(), threshold));
+            dataSets.add(dangerZone(chart.getXAxis().getAxisMinimum(),
+                    chart.getXAxis().getAxisMaximum(), yA.getAxisMaximum(), threshold));
         }
 
         // 센서 선택 칩은 집계뷰에서만 노출 (캡슐 바 2세트는 UI가 지저분해지므로 1개씩 표시)
@@ -373,12 +450,13 @@ public class SensorDetailFragment extends Fragment {
             // 스크럽은 '최대'에 스냅 — 위험 판단 기준은 평균이 아니라 피크이므로
             dataSets.add(scrubSet(selMax, surface ? "표면 최대" : "외부 최대"));
         } else {
-            // 평균(굵은 곡선) = 주 트렌드 · 최대(연한 얇은 곡선) = 범위/피크 참고
+            // 평균(굵은 곡선) = 주 트렌드 · 최대(연한 얇은 곡선) = 범위/피크 참고.
+            // 분단위(1분 버킷) 데이터라 gap 판정은 시간 단위(MINUTE_GAP_X)로.
             rangeOverlay.clearBars();
-            for (LineDataSet seg : splitLine(set1Max, faint(COLOR_SURFACE),  1f,   false)) dataSets.add(seg);
-            for (LineDataSet seg : splitLine(set2Max, faint(COLOR_EXTERNAL), 1f,   false)) dataSets.add(seg);
-            for (LineDataSet seg : splitLine(set1,    COLOR_SURFACE,         2.5f, false)) dataSets.add(seg);
-            for (LineDataSet seg : splitLine(set2,    COLOR_EXTERNAL,        2.5f, false)) dataSets.add(seg);
+            for (LineDataSet seg : splitLine(set1Max, faint(COLOR_SURFACE),  1f,   false, MINUTE_GAP_X, CURVE_SUBDIVIDE_MINUTE)) dataSets.add(seg);
+            for (LineDataSet seg : splitLine(set2Max, faint(COLOR_EXTERNAL), 1f,   false, MINUTE_GAP_X, CURVE_SUBDIVIDE_MINUTE)) dataSets.add(seg);
+            for (LineDataSet seg : splitLine(set1,    COLOR_SURFACE,         2.5f, false, MINUTE_GAP_X, CURVE_SUBDIVIDE_MINUTE)) dataSets.add(seg);
+            for (LineDataSet seg : splitLine(set2,    COLOR_EXTERNAL,        2.5f, false, MINUTE_GAP_X, CURVE_SUBDIVIDE_MINUTE)) dataSets.add(seg);
 
             LineDataSet danger1 = exceedanceMarkers(set1Max, threshold);
             LineDataSet danger2 = exceedanceMarkers(set2Max, threshold);
@@ -403,6 +481,37 @@ public class SensorDetailFragment extends Fragment {
         chart.setData(new LineData(dataSets));
         chart.invalidate();
         rangeOverlay.invalidate();
+
+        updateChartLegend(aggregate, surface);
+    }
+
+    /** 범례 캡션의 심볼을 실제 마커 색으로 채색.
+        전부 회색이면 어떤 점이 어떤 의미인지 구분이 안 되던 문제 보정.
+        집계뷰 = 선택 센서 색 1개, 분단위 뷰 = 표면·외부 2색. */
+    private void updateChartLegend(boolean aggregate, boolean surface) {
+        if (tvChartLegend == null) return;
+        android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder();
+        if (aggregate) {
+            appendColored(sb, "● ", surface ? COLOR_SURFACE : COLOR_EXTERNAL);
+        } else {
+            appendColored(sb, "● ", COLOR_SURFACE);
+            appendColored(sb, "● ", COLOR_EXTERNAL);
+        }
+        sb.append("평균  ·  ");
+        appendColored(sb, "● ", COLOR_DANGER);
+        sb.append("임계 초과  ·  ");
+        appendColored(sb, "○ ", COLOR_WARN);
+        sb.append("경고  ·  ");
+        appendColored(sb, "○ ", COLOR_DISC);
+        sb.append("연결 끊김");
+        tvChartLegend.setText(sb);
+    }
+
+    private static void appendColored(android.text.SpannableStringBuilder sb, String s, int color) {
+        int start = sb.length();
+        sb.append(s);
+        sb.setSpan(new android.text.style.ForegroundColorSpan(color), start, sb.length(),
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
     }
 
     /** 위험 임계온도(°C). 설정에서 조절, 기본 40°C. */
@@ -412,7 +521,7 @@ public class SensorDetailFragment extends Fragment {
                 .getFloat("danger_threshold_c", 40f);
     }
 
-    /** 최대 온도가 임계값 이상인 지점에 빨간 마커. */
+    /** 최대 온도가 임계값 이상인 지점에 빨간 마커 — 데이터 값이므로 꽉 찬 점(●). */
     private LineDataSet exceedanceMarkers(LineDataSet maxSet, float threshold) {
         List<Entry> pts = new ArrayList<>();
         for (Entry e : maxSet.getValues()) {
@@ -424,31 +533,30 @@ public class SensorDetailFragment extends Fragment {
         ds.setDrawCircles(true);
         ds.setCircleColor(COLOR_DANGER);
         ds.setCircleRadius(4.5f);
-        ds.setDrawCircleHole(true);
-        ds.setCircleHoleColor(Color.WHITE);
-        ds.setCircleHoleRadius(2f);
+        ds.setDrawCircleHole(false);
         ds.setDrawValues(false);
         ds.setHighlightEnabled(false);
         return ds;
     }
 
-    /** 공백(x 간격>1)에서 끊고, 연속 구간(run)별로 부드러운 곡선을 만든다.
+    /** 공백(maxGapX 초과)에서 끊고, 연속 구간(run)별로 부드러운 곡선을 만든다.
         고립된 단일 포인트(1점 run)는 그리지 않는다 — 집계뷰는 캡슐 바가 담당. */
-    private List<LineDataSet> splitLine(LineDataSet src, int color, float width, boolean dashed) {
+    private List<LineDataSet> splitLine(LineDataSet src, int color, float width, boolean dashed,
+                                        float maxGapX, int subdivide) {
         List<LineDataSet> out = new ArrayList<>();
         List<Entry> pts = src.getValues();
         if (pts.isEmpty()) return out;
         List<Entry> run = new ArrayList<>();
         float prevX = pts.get(0).getX();
         for (Entry e : pts) {
-            if (!run.isEmpty() && e.getX() - prevX > 1.5f) {
-                if (run.size() >= 2) out.add(styledSeg(smoothRun(run), color, width, dashed));
+            if (!run.isEmpty() && e.getX() - prevX > maxGapX) {
+                if (run.size() >= 2) out.add(styledSeg(smoothRun(run, subdivide), color, width, dashed));
                 run = new ArrayList<>();
             }
             run.add(e);
             prevX = e.getX();
         }
-        if (run.size() >= 2) out.add(styledSeg(smoothRun(run), color, width, dashed));
+        if (run.size() >= 2) out.add(styledSeg(smoothRun(run, subdivide), color, width, dashed));
         return out;
     }
 
@@ -456,7 +564,7 @@ public class SensorDetailFragment extends Fragment {
         곡선이 모든 원본 점을 지나고 인접 두 점의 범위를 벗어나지 않으므로
         (오버슈트 없음) 위험 임계선을 '거짓 초과'하는 일이 없다.
         결과는 LINEAR로 렌더 — CUBIC_BEZIER 렌더 버그(점만 남고 선 미연결)와 무관. */
-    private List<Entry> smoothRun(List<Entry> run) {
+    private List<Entry> smoothRun(List<Entry> run, int subdivide) {
         int n = run.size();
         float[] xs = new float[n];
         float[] ys = new float[n];
@@ -464,7 +572,7 @@ public class SensorDetailFragment extends Fragment {
             xs[i] = run.get(i).getX();
             ys[i] = run.get(i).getY();
         }
-        float[][] dense = ChartInterpolation.monotoneCubicDense(xs, ys, CURVE_SUBDIVIDE);
+        float[][] dense = ChartInterpolation.monotoneCubicDense(xs, ys, subdivide);
         List<Entry> out = new ArrayList<>(dense.length);
         for (float[] p : dense) out.add(new Entry(p[0], p[1]));
         return out;
@@ -483,7 +591,9 @@ public class SensorDetailFragment extends Fragment {
         return ds;
     }
 
-    /** 버킷 위치에만 원을 찍는 점 전용 데이터셋(선 없음). 집계뷰의 '평균 점'. */
+    /** 버킷 위치에만 원을 찍는 점 전용 데이터셋(선 없음). 집계뷰의 '평균 점'.
+        마커 의미 체계: 데이터 값(평균·초과) = 꽉 찬 점(●), 이벤트(경고·끊김) = 링(○).
+        범례 캡션과 일치하도록 구멍 없이 그린다. */
     private LineDataSet bucketDots(List<Entry> pts, int color) {
         LineDataSet ds = new LineDataSet(new ArrayList<>(pts), "");
         ds.setColor(Color.TRANSPARENT);
@@ -491,9 +601,7 @@ public class SensorDetailFragment extends Fragment {
         ds.setDrawCircles(true);
         ds.setCircleColor(color);
         ds.setCircleRadius(3.5f);
-        ds.setDrawCircleHole(true);
-        ds.setCircleHoleColor(Color.WHITE);
-        ds.setCircleHoleRadius(1.5f);
+        ds.setDrawCircleHole(false);
         ds.setDrawValues(false);
         ds.setHighlightEnabled(false);
         ds.setForm(Legend.LegendForm.NONE);
@@ -544,58 +652,72 @@ public class SensorDetailFragment extends Fragment {
 
     // ── 슬롯 빌더 ──────────────────────────────────────────────────
 
-    /** 1일 뷰: 시간별 avg/max/min (raw 데이터) */
-    private void buildHourlySlots(List<TemperatureModel> items,
+    /** 1일/단일날짜 뷰: 1분 버킷 avg/max/min — 분단위 곡선용.
+        x 단위는 '시(hour)' float (예: 14:35 → 14.583). 서버 1m 버킷 응답을 전제.
+        이벤트 마커는 상태가 바뀌는 시점(onset)에만 찍어 과밀을 막는다. */
+    private void buildMinuteSlots(List<TemperatureModel> items,
                                   LineDataSet set1, LineDataSet set1Max, LineDataSet set1Min,
                                   LineDataSet set2, LineDataSet set2Max, LineDataSet set2Min,
                                   LineDataSet setWarn, LineDataSet setDisc) {
-        float[]   sum1 = new float[24], sum2 = new float[24];
-        float[]   max1 = new float[24], max2 = new float[24];
-        float[]   min1 = new float[24], min2 = new float[24];
-        int[]     cnt  = new int[24];
-        boolean[] hasData    = new boolean[24];
-        String[]  worstEvent = new String[24];
+        final int slots = (24 * 60) / MINUTE_SLOT_MIN;   // 1440 (1분 버킷)
+        float[]   sum1 = new float[slots], sum2 = new float[slots];
+        float[]   max1 = new float[slots], max2 = new float[slots];
+        float[]   min1 = new float[slots], min2 = new float[slots];
+        int[]     cnt  = new int[slots];
+        boolean[] hasData    = new boolean[slots];
+        String[]  worstEvent = new String[slots];
 
         if (items != null) {
             for (TemperatureModel item : items) {
-                if (item.createdAt == null || item.createdAt.length() < 13) continue;
-                int h;
-                try { h = Integer.parseInt(item.createdAt.substring(11, 13)); }
-                catch (NumberFormatException e) { continue; }
-                if (h < 0 || h >= 24) continue;
+                if (item.createdAt == null || item.createdAt.length() < 16) continue;
+                int h, m;
+                try {
+                    h = Integer.parseInt(item.createdAt.substring(11, 13));
+                    m = Integer.parseInt(item.createdAt.substring(14, 16));
+                } catch (NumberFormatException e) { continue; }
+                if (h < 0 || h >= 24 || m < 0 || m >= 60) continue;
+                int slot = (h * 60 + m) / MINUTE_SLOT_MIN;
                 float v1max = item.temp1Max != null ? item.temp1Max : item.temp1;
                 float v1min = item.temp1Min != null ? item.temp1Min : item.temp1;
                 float v2max = item.temp2Max != null ? item.temp2Max : item.temp2;
                 float v2min = item.temp2Min != null ? item.temp2Min : item.temp2;
-                sum1[h] += item.temp1;
-                sum2[h] += item.temp2;
-                if (!hasData[h] || v1max > max1[h]) max1[h] = v1max;
-                if (!hasData[h] || v1min < min1[h]) min1[h] = v1min;
-                if (!hasData[h] || v2max > max2[h]) max2[h] = v2max;
-                if (!hasData[h] || v2min < min2[h]) min2[h] = v2min;
-                hasData[h] = true;
-                cnt[h]++;
-                worstEvent[h] = worstOf(worstEvent[h], item.event);
+                sum1[slot] += item.temp1;
+                sum2[slot] += item.temp2;
+                if (!hasData[slot] || v1max > max1[slot]) max1[slot] = v1max;
+                if (!hasData[slot] || v1min < min1[slot]) min1[slot] = v1min;
+                if (!hasData[slot] || v2max > max2[slot]) max2[slot] = v2max;
+                if (!hasData[slot] || v2min < min2[slot]) min2[slot] = v2min;
+                hasData[slot] = true;
+                cnt[slot]++;
+                worstEvent[slot] = worstOf(worstEvent[slot], item.event);
             }
         }
 
+        // x축 라벨은 정수 '시' 위치에만 (granularity=1)
         for (int h = 0; h < 24; h++) {
             xLabels.add(String.format(Locale.getDefault(), "%02d:00", h));
-            if (hasData[h]) {
-                float avg1 = sum1[h] / cnt[h];
-                float avg2 = sum2[h] / cnt[h];
-                set1.addEntry(new Entry(h, avg1));
-                set1Max.addEntry(new Entry(h, max1[h]));
-                set1Min.addEntry(new Entry(h, min1[h]));
-                set2.addEntry(new Entry(h, avg2));
-                set2Max.addEntry(new Entry(h, max2[h]));
-                set2Min.addEntry(new Entry(h, min2[h]));
-                if ("disconnected".equals(worstEvent[h])) {
-                    setDisc.addEntry(new Entry(h, avg1));
-                } else if ("warning".equals(worstEvent[h])) {
-                    setWarn.addEntry(new Entry(h, avg1));
-                }
+        }
+
+        String prevEvent = "normal";
+        for (int i = 0; i < slots; i++) {
+            if (!hasData[i]) continue;
+            float x = i * MINUTE_SLOT_MIN / 60f;
+            float avg1 = sum1[i] / cnt[i];
+            float avg2 = sum2[i] / cnt[i];
+            set1.addEntry(new Entry(x, avg1));
+            set1Max.addEntry(new Entry(x, max1[i]));
+            set1Min.addEntry(new Entry(x, min1[i]));
+            set2.addEntry(new Entry(x, avg2));
+            set2Max.addEntry(new Entry(x, max2[i]));
+            set2Min.addEntry(new Entry(x, min2[i]));
+
+            // 이벤트는 '시작 시점'만 마킹 (버킷마다 찍으면 과밀)
+            String ev = worstEvent[i] == null ? "normal" : worstEvent[i];
+            if (!ev.equals(prevEvent)) {
+                if ("disconnected".equals(ev)) setDisc.addEntry(new Entry(x, avg1));
+                else if ("warning".equals(ev)) setWarn.addEntry(new Entry(x, avg1));
             }
+            prevEvent = ev;
         }
     }
 
@@ -922,8 +1044,8 @@ public class SensorDetailFragment extends Fragment {
         if (span <= 0) span = 1;
 
         if (span <= 1) {
-            // 단일 날짜 → 시간별(hour-of-day) 집계 재사용
-            buildHourlySlots(items, set1, set1Max, set1Min, set2, set2Max, set2Min, setWarn, setDisc);
+            // 단일 날짜 → 분단위(1분 버킷) 집계 재사용
+            buildMinuteSlots(items, set1, set1Max, set1Min, set2, set2Max, set2Min, setWarn, setDisc);
             return 24;
         }
 
@@ -1045,7 +1167,7 @@ public class SensorDetailFragment extends Fragment {
         rangeSpanDays = Math.max(span, 1);
 
         rangeLabel = start + " ~ " + end
-                + (span <= 1 ? " · 시간별 평균·최대" : " · 일별 평균·최대");
+                + (span <= 1 ? " · 1분 평균·최대" : " · 일별 평균·최대");
 
         viewModel.loadRange(start, end);
     }

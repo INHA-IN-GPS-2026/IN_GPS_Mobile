@@ -72,6 +72,19 @@ public class SystemHealthFragment extends Fragment {
         });
     }
 
+    // 폴링은 화면이 보이는 동안만
+    @Override
+    public void onStart() {
+        super.onStart();
+        if (viewModel != null) viewModel.startPolling();
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        if (viewModel != null) viewModel.stopPolling();
+    }
+
     private void setupBarChart() {
         barChart.getDescription().setEnabled(false);
         barChart.getLegend().setEnabled(false);

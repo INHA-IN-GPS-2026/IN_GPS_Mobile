@@ -25,9 +25,12 @@ public class SensorDetailViewModel extends ViewModel {
     private final TemperatureRepository repository = new TemperatureRepository();
     private final Handler handler = new Handler(Looper.getMainLooper());
 
+    private boolean polling = false;
+
     private final Runnable pollRunnable = new Runnable() {
         @Override
         public void run() {
+            if (!polling) return;
             repository.fetchLatest(deviceId, temperatureData);
             handler.postDelayed(this, POLL_INTERVAL_MS);
         }
@@ -35,7 +38,19 @@ public class SensorDetailViewModel extends ViewModel {
 
     public SensorDetailViewModel(String deviceId) {
         this.deviceId = deviceId;
+    }
+
+    /** 화면이 보일 때만 폴링 — Fragment onStart(및 다이얼로그 닫힘)에서 호출. */
+    public void startPolling() {
+        if (polling) return;
+        polling = true;
         handler.post(pollRunnable);
+    }
+
+    /** Fragment onStop(및 다이얼로그 열림)에서 호출 — 백그라운드 네트워크 낭비 방지. */
+    public void stopPolling() {
+        polling = false;
+        handler.removeCallbacksAndMessages(null);
     }
 
     public LiveData<TemperatureModel> getTemperatureData() {

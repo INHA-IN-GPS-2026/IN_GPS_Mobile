@@ -157,6 +157,17 @@
                     android:id="@+id/line_chart"
                     android:layout_width="match_parent"
                     android:layout_height="220dp" />
+
+                <!-- 마커 종류 범례 — 심볼 색은 실제 마커 색으로 코드에서 채색 -->
+                <TextView
+                    android:id="@+id/tv_chart_legend"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="6dp"
+                    android:text="● 평균  ·  ● 임계 초과  ·  ○ 경고  ·  ○ 연결 끊김"
+                    android:textColor="@color/color_text_secondary"
+                    android:textSize="10sp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -167,14 +178,14 @@
             android:orientation="horizontal"
             android:layout_marginBottom="12dp">
 
-            <!-- Frame temp card -->
+            <!-- Surface temp card — 차트 표면 센서 색과 통일된 주황 계열 -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:layout_marginEnd="6dp"
                 app:cardCornerRadius="12dp"
-                app:cardBackgroundColor="@color/color_ambient_temp_bg"
+                app:cardBackgroundColor="@color/color_surface_temp_bg"
                 app:cardElevation="0dp"
                 app:strokeWidth="0dp">
 
@@ -188,7 +199,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="표면 온도"
-                        android:textColor="@color/color_ambient_temp_text"
+                        android:textColor="@color/color_surface_temp_text"
                         android:textSize="12sp"
                         android:alpha="0.8" />
 
@@ -198,20 +209,20 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:text="--°C"
-                        android:textColor="@color/color_ambient_temp_text"
+                        android:textColor="@color/color_surface_temp_text"
                         android:textSize="24sp"
                         android:textStyle="bold" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- Ambient temp card -->
+            <!-- External temp card — 차트 외부 센서 색과 통일된 파랑 계열 -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:layout_marginStart="6dp"
                 app:cardCornerRadius="12dp"
-                app:cardBackgroundColor="@color/color_frame_temp_bg"
+                app:cardBackgroundColor="@color/color_external_temp_bg"
                 app:cardElevation="0dp"
                 app:strokeWidth="0dp">
 
@@ -225,7 +236,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="외부 온도"
-                        android:textColor="@color/color_frame_temp_text"
+                        android:textColor="@color/color_external_temp_text"
                         android:textSize="12sp"
                         android:alpha="0.8" />
 
@@ -235,7 +246,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:text="--°C"
-                        android:textColor="@color/color_frame_temp_text"
+                        android:textColor="@color/color_external_temp_text"
                         android:textSize="24sp"
                         android:textStyle="bold" />
                 </LinearLayout>

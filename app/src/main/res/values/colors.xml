@@ -34,11 +34,14 @@
     <color name="color_text_secondary">#5F6368</color>
     <color name="color_divider">#E0E0E0</color>
 
-    <!-- Temperature cards -->
-    <color name="color_frame_temp_bg">#FFF3E0</color>
+    <!-- (설정 화면 아이콘 tint에서 사용) -->
     <color name="color_frame_temp_text">#E65100</color>
-    <color name="color_ambient_temp_bg">#FCE8E6</color>
-    <color name="color_ambient_temp_text">#C5221F</color>
+
+    <!-- 온도 카드 — 차트 센서 색과 동일 계열로 통일: 표면=주황(#FF5722), 외부=파랑(#2196F3) -->
+    <color name="color_surface_temp_bg">#FBE9E7</color>
+    <color name="color_surface_temp_text">#D84315</color>
+    <color name="color_external_temp_bg">#E3F2FD</color>
+    <color name="color_external_temp_text">#1565C0</color>
 
     <!-- Settings -->
     <color name="color_timer_bg">#FFF3E0</color>

@@ -33,9 +33,12 @@ public class SystemHealthViewModel extends ViewModel {
     private final DeviceRepository repository = new DeviceRepository();
     private final Handler handler = new Handler(Looper.getMainLooper());
 
+    private boolean polling = false;
+
     private final Runnable pollRunnable = new Runnable() {
         @Override
         public void run() {
+            if (!polling) return;
             repository.fetchDevices(devices -> {
                 int normal = 0, warning = 0, critical = 0, disconnected = 0;
                 for (com.example.in_gps.model.DeviceModel d : devices) {
@@ -50,8 +53,16 @@ public class SystemHealthViewModel extends ViewModel {
         }
     };
 
-    public SystemHealthViewModel() {
+    /** 화면이 보일 때만 폴링 — Fragment onStart/onStop에서 호출. */
+    public void startPolling() {
+        if (polling) return;
+        polling = true;
         handler.post(pollRunnable);
+    }
+
+    public void stopPolling() {
+        polling = false;
+        handler.removeCallbacksAndMessages(null);
     }
 
     public LiveData<DeviceStats> getDeviceStats() {

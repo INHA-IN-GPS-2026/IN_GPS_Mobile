@@ -26,16 +26,6 @@ public class TemperatureModel {
     @SerializedName("rms_z")
     public Integer rmsZ;
 
-    // 레거시 — 구 server (v3 이전) 응답 호환. 신규 코드는 사용 X.
-    @SerializedName("angle_x")
-    public Float angleX;
-
-    @SerializedName("angle_y")
-    public Float angleY;
-
-    @SerializedName("angle_z")
-    public Float angleZ;
-
     @SerializedName("event")
     public String event;
 

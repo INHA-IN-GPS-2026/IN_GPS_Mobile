@@ -54,6 +54,8 @@ public class SensorDetailTestFragment extends Fragment {
     private static final int COLOR_RMS_TOTAL = Color.parseColor("#8E24AA");
     private static final int COLOR_AXIS  = Color.parseColor("#9E9E9E");
     private static final int COLOR_DANGER = Color.parseColor("#E53935");
+    /** 재연결(디바이스 전원 순환) 지점 마커 — 기간 차트의 '연결 끊김' 이벤트 색과 통일. */
+    private static final int COLOR_DISC  = Color.parseColor("#757575");
 
     /** (구) Temperature SMA window. EMA 전환 후 미사용 — 되돌릴 때 참고용으로 남김. */
     private static final int MA_WINDOW = 3;
@@ -167,6 +169,19 @@ public class SensorDetailTestFragment extends Fragment {
         viewModel.getRecentData().observe(getViewLifecycleOwner(), this::onDataChanged);
     }
 
+    // 폴링은 화면이 보이는 동안만 (다이얼로그가 닫히면 ViewModel과 함께 정리)
+    @Override
+    public void onStart() {
+        super.onStart();
+        if (viewModel != null) viewModel.startPolling();
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        if (viewModel != null) viewModel.stopPolling();
+    }
+
     // ── 차트 공용 설정 ──────────────────────────────────────────────
     private void setupChart(LineChart chart, String yUnit) {
         chart.setBackgroundColor(Color.TRANSPARENT);
@@ -224,9 +239,10 @@ public class SensorDetailTestFragment extends Fragment {
         List<TemperatureModel> ordered = new ArrayList<>(recentDesc);
         Collections.reverse(ordered);
 
-        // 재연결 감지: 5초 이상 데이터 공백(디바이스 재부팅/캘리브레이션 등)이 있으면,
-        // 마지막 공백 이후의 연속 구간만 남겨 그래프를 y축(x=0)부터 새로 시작한다.
-        ordered = trimToLastContiguousRun(ordered);
+        // 재연결 감지(디바이스 재부팅 등으로 5초 이상 데이터 공백): 예전엔 공백 이전 구간을
+        // 통째로 버리고 x=0부터 새로 그렸음 — 그러면 재부팅 직전 60초를 다시 볼 방법이 없었다.
+        // 지금은 버리지 않고 유지하되, renderTemperatureChart에서 공백 지점마다 선을 끊어
+        // 그린다(오도 연결 방지) — 창(window) 안에 남아 있는 한 스크럽/확대로 계속 확인 가능.
         if (ordered.isEmpty()) return;
 
         // 현재값(가장 최신) — DESC 첫 row
@@ -254,9 +270,6 @@ public class SensorDetailTestFragment extends Fragment {
     }
 
     private void renderTemperatureChart(List<TemperatureModel> ordered) {
-        LineDataSet ds1 = makeLineDataSet("표면", COLOR_TEMP1);
-        LineDataSet ds2 = makeLineDataSet("외부", COLOR_TEMP2);
-
         int n = ordered.size();
         float[] temp1 = new float[n];
         float[] temp2 = new float[n];
@@ -266,25 +279,34 @@ public class SensorDetailTestFragment extends Fragment {
             temp2[i] = m.temp2;
         }
 
+        // 재연결(디바이스 전원 순환) 지점에서 run을 나눈다. 예전엔 마지막 run만 남기고
+        // 이전 구간을 버렸는데, 그러면 재부팅 직전 60초는 다시 볼 방법이 없었다.
+        // 이제는 모든 run을 유지하고, run 사이에서만 선을 끊어 그려 오도 연결(시간축을
+        // 무시한 채 공백 전후를 이어버리는 것)을 막는다.
+        List<int[]> runs = splitRuns(ordered);
+
         // Thermistor raw에는 ADC 양자화 + 환경 잡음에 의한 jitter가 섞여 시각적으로 떠 보임.
         // EMA(지수이동평균)로 고주파 성분을 누른다. 최신값 가중이라 SMA보다 반응적.
-        // 위상 지연 ≈ (1−α)/α 샘플 ≈ 1.2s (α=0.45). 물리적 열 시상수가 지배적이므로
-        // 이 SW 지연은 보조분 — 자세한 분석은 Docs/온도_응답지연_분석.md.
-        float[] temp1Smoothed = ema(temp1, EMA_ALPHA);
-        float[] temp2Smoothed = ema(temp2, EMA_ALPHA);
+        // 위상 지연 ≈ (1−α)/α 샘플 ≈ 1.2s (α=0.45). run별로 독립 적용(공백을 건너뛰어
+        // 평활하지 않도록) — 자세한 분석은 Docs/온도_응답지연_분석.md.
+        float[] temp1Smoothed = new float[n];
+        float[] temp2Smoothed = new float[n];
+        for (int[] run : runs) {
+            int s = run[0], e = run[1];
+            float[] ema1 = ema(java.util.Arrays.copyOfRange(temp1, s, e), EMA_ALPHA);
+            float[] ema2 = ema(java.util.Arrays.copyOfRange(temp2, s, e), EMA_ALPHA);
+            System.arraycopy(ema1, 0, temp1Smoothed, s, e - s);
+            System.arraycopy(ema2, 0, temp2Smoothed, s, e - s);
+        }
 
         // 좌측 정렬: 데이터는 x=0부터 채우고 우측은 데이터 수가 부족할 때 비워둔다.
         // 최신값(=ordered의 마지막 원소)은 x = n - 1 에 위치.
         int offset = 0;
-//        for (int i = 0; i < n; i++) {
-//            ds1.addEntry(new Entry(offset + i, temp1Smoothed[i]));
-//            ds2.addEntry(new Entry(offset + i, temp2Smoothed[i]));
-//        }
 
         /* ── Monotone cubic (Fritsch–Carlson) 보간 ─────────────────────────────────
-         * EMA 결과 점 사이를 보간해 dense points를 만들고 LINEAR로 잇는다.
-         * spline은 노이즈를 제거하지 않으므로 반드시 EMA 뒤에 적용해야 jitter를 따라가는
-         * 곡선이 되지 않는다.
+         * EMA 결과 점 사이를 보간해 dense points를 만들고 LINEAR로 잇는다. run별로 따로
+         * 보간해 공백 너머 두 점을 하나의 곡선으로 잇지 않는다(그러면 재부팅으로 몇 분 빈
+         * 구간이 1초짜리 급경사처럼 그려져 오해를 부름).
          *
          * Catmull-Rom → monotone cubic 교체 이유: Catmull-Rom은 피크·평탄 경계에서
          * 인접 점 범위를 벗어나는 오버슈트/물결(ripple)이 생겨 데이터에 없는 온도값이
@@ -293,15 +315,42 @@ public class SensorDetailTestFragment extends Fragment {
          *
          * LineDataSet.Mode.CUBIC_BEZIER를 안 쓰는 이유: 렌더 버그(점만 남고 선 미연결)
          * + 오버슈트. dense 점을 직접 만들어 LINEAR로 그리는 방식은 이와 무관. */
-        float[][] temp1Dense = ChartInterpolation.monotoneCubicDense(temp1Smoothed, SPLINE_SUBDIVIDE);
-        float[][] temp2Dense = ChartInterpolation.monotoneCubicDense(temp2Smoothed, SPLINE_SUBDIVIDE);
-        ds1.setDrawCircles(false);
-        ds2.setDrawCircles(false);
-        // 보간 점은 실제 측정값이 아니므로 스크럽은 별도 scrubSet(정수 x)에만 스냅
-        ds1.setHighlightEnabled(false);
-        ds2.setHighlightEnabled(false);
-        for (float[] p : temp1Dense) ds1.addEntry(new Entry(offset + p[0], p[1]));
-        for (float[] p : temp2Dense) ds2.addEntry(new Entry(offset + p[0], p[1]));
+        List<LineDataSet> seg1List = new ArrayList<>();
+        List<LineDataSet> seg2List = new ArrayList<>();
+        for (int ri = 0; ri < runs.size(); ri++) {
+            int[] run = runs.get(ri);
+            int s = run[0], e = run[1];
+            int len = e - s;
+            // legend에는 첫 run에만 라벨을 달아 중복 항목이 생기지 않게 한다.
+            String label1 = (ri == 0) ? "표면" : "";
+            String label2 = (ri == 0) ? "외부" : "";
+            LineDataSet seg1 = makeLineDataSet(label1, COLOR_TEMP1);
+            LineDataSet seg2 = makeLineDataSet(label2, COLOR_TEMP2);
+            seg1.setDrawCircles(false);
+            seg2.setDrawCircles(false);
+            // 보간 점은 실제 측정값이 아니므로 스크럽은 별도 scrubSet(정수 x)에만 스냅
+            seg1.setHighlightEnabled(false);
+            seg2.setHighlightEnabled(false);
+            if (len == 1) {
+                seg1.addEntry(new Entry(offset + s, temp1Smoothed[s]));
+                seg2.addEntry(new Entry(offset + s, temp2Smoothed[s]));
+            } else {
+                float[] xs = new float[len];
+                float[] ys1 = new float[len];
+                float[] ys2 = new float[len];
+                for (int k = 0; k < len; k++) {
+                    xs[k] = s + k;
+                    ys1[k] = temp1Smoothed[s + k];
+                    ys2[k] = temp2Smoothed[s + k];
+                }
+                float[][] d1 = ChartInterpolation.monotoneCubicDense(xs, ys1, SPLINE_SUBDIVIDE);
+                float[][] d2 = ChartInterpolation.monotoneCubicDense(xs, ys2, SPLINE_SUBDIVIDE);
+                for (float[] p : d1) seg1.addEntry(new Entry(offset + p[0], p[1]));
+                for (float[] p : d2) seg2.addEntry(new Entry(offset + p[0], p[1]));
+            }
+            seg1List.add(seg1);
+            seg2List.add(seg2);
+        }
 
         // 현재 시점 마커: spline 곡선은 점이 모두 꺼져 있어 "지금 값이 어디인지" 직관적으로
         // 보이지 않음. 별도 single-point LineDataSet으로 가장 최신 raw 위치(=좌측 정렬에선
@@ -324,10 +373,17 @@ public class SensorDetailTestFragment extends Fragment {
         }
         addDangerLimitLine(yAxis, threshold);
 
-        sets.add(ds1);
-        sets.add(ds2);
+        sets.addAll(seg1List);
+        sets.addAll(seg2List);
         sets.add(marker1);
         sets.add(marker2);
+
+        // 재연결 지점 표시: 기간 차트의 '연결 끊김' 이벤트와 같은 회색 링 마커.
+        // run이 2개 이상일 때만(=창 안에서 실제로 재연결이 있었을 때만) 찍는다.
+        for (int ri = 1; ri < runs.size(); ri++) {
+            int s = runs.get(ri)[0];
+            sets.add(reconnectMarker(offset + s, temp1Smoothed[s]));
+        }
 
         // 벤치마킹 B안(Netatmo): 터치 스크럽 — EMA 결과(정수 x)에만 스냅
         sets.add(scrubSet(temp1Smoothed, "표면"));
@@ -338,6 +394,25 @@ public class SensorDetailTestFragment extends Fragment {
         chartTemperature.getXAxis().setAxisMaximum(CHART_X_RANGE - 0.5f);
         chartTemperature.notifyDataSetChanged();
         chartTemperature.invalidate();
+    }
+
+    /** 재연결(디바이스 전원 순환) 지점 마커 — 데이터 값이 아니라 이벤트이므로 링(○)으로. */
+    private LineDataSet reconnectMarker(float x, float y) {
+        List<Entry> pts = new ArrayList<>(1);
+        pts.add(new Entry(x, y));
+        LineDataSet ds = new LineDataSet(pts, "");
+        ds.setColor(Color.TRANSPARENT);
+        ds.setLineWidth(0f);
+        ds.setDrawCircles(true);
+        ds.setCircleColor(COLOR_DISC);
+        ds.setCircleRadius(5f);
+        ds.setDrawCircleHole(true);
+        ds.setCircleHoleRadius(2.5f);
+        ds.setCircleHoleColor(Color.WHITE);
+        ds.setDrawValues(false);
+        ds.setHighlightEnabled(false);
+        ds.setForm(Legend.LegendForm.NONE);
+        return ds;
     }
 
     /** 위험 임계온도(°C). 설정에서 조절, 기본 40°C. */
@@ -609,20 +684,25 @@ public class SensorDetailTestFragment extends Fragment {
     }
 
     /**
-     * ASC 정렬 리스트에서 5초 이상 공백을 기준으로 '마지막 연속 구간'만 반환.
-     * 디바이스가 꺼졌다 켜져 데이터가 끊긴 뒤 재개되면 이전 데이터는 버리고
-     * 최신 연속 구간만 남겨, 그래프가 y축(x=0)부터 새로 그려지도록 한다.
+     * ASC 정렬 리스트를 5초 이상 공백(디바이스 재부팅 등) 기준으로 연속 구간(run)들로 나눈다.
+     * 각 원소는 [startIndex, endIndexExclusive]. 예전의 trimToLastContiguousRun과 달리
+     * 공백 이전 구간을 버리지 않는다 — 창(window)에 남아 있는 한 모든 run을 그대로 반환해,
+     * renderTemperatureChart가 run 사이에서만 선을 끊어 그리도록 한다.
      */
-    private List<TemperatureModel> trimToLastContiguousRun(List<TemperatureModel> asc) {
-        int runStart = 0;
+    private List<int[]> splitRuns(List<TemperatureModel> asc) {
+        List<int[]> runs = new ArrayList<>();
+        if (asc.isEmpty()) return runs;
+        int start = 0;
         for (int i = 1; i < asc.size(); i++) {
             long prev = parseEpochMs(asc.get(i - 1).createdAt);
             long cur  = parseEpochMs(asc.get(i).createdAt);
             if (prev > 0 && cur > 0 && (cur - prev) > RECONNECT_GAP_MS) {
-                runStart = i;
+                runs.add(new int[]{start, i});
+                start = i;
             }
         }
-        return runStart == 0 ? asc : new ArrayList<>(asc.subList(runStart, asc.size()));
+        runs.add(new int[]{start, asc.size()});
+        return runs;
     }
 
     private static long parseEpochMs(String ts) {

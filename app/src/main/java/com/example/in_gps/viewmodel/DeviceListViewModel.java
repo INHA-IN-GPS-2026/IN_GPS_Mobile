@@ -20,16 +20,28 @@ public class DeviceListViewModel extends ViewModel {
     private final DeviceRepository repository = new DeviceRepository();
     private final Handler handler = new Handler(Looper.getMainLooper());
 
+    private boolean polling = false;
+
     private final Runnable pollRunnable = new Runnable() {
         @Override
         public void run() {
+            if (!polling) return;
             repository.fetchDevices(result -> devices.postValue(result));
             handler.postDelayed(this, POLL_INTERVAL_MS);
         }
     };
 
-    public DeviceListViewModel() {
+    /** 화면이 보일 때만 폴링 — Fragment onStart/onStop에서 호출.
+        (SystemHealth와 같은 /devices를 쓰지만, 탭 전환 시 한쪽만 돌게 되어 중복 해소) */
+    public void startPolling() {
+        if (polling) return;
+        polling = true;
         handler.post(pollRunnable);
+    }
+
+    public void stopPolling() {
+        polling = false;
+        handler.removeCallbacksAndMessages(null);
     }
 
     public LiveData<List<DeviceModel>> getDevices() {

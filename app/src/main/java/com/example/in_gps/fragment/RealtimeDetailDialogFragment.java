@@ -19,6 +19,9 @@ import com.example.in_gps.R;
  */
 public class RealtimeDetailDialogFragment extends DialogFragment {
 
+    /** 닫힘 알림 키 — 부모 화면이 폴링을 재개하는 신호 */
+    public static final String RESULT_CLOSED = "realtime_detail_closed";
+
     private static final String ARG_DEVICE_ID = "device_id";
 
     public static RealtimeDetailDialogFragment newInstance(String deviceId) {
@@ -61,5 +64,12 @@ public class RealtimeDetailDialogFragment extends DialogFragment {
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT);
         }
+    }
+
+    @Override
+    public void onDismiss(@NonNull android.content.DialogInterface dialog) {
+        super.onDismiss(dialog);
+        // 부모(SensorDetailFragment)가 정지해 둔 자기 폴링을 재개하도록 알림
+        getParentFragmentManager().setFragmentResult(RESULT_CLOSED, Bundle.EMPTY);
     }
 }

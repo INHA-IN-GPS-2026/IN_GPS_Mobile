@@ -43,4 +43,23 @@ public class TempMarkerView extends MarkerView {
     public MPPointF getOffset() {
         return new MPPointF(-(getWidth() / 2f), -getHeight() - 12f);
     }
+
+    /** 차트 경계 밖으로 말풍선이 잘려 나가지 않게 클램프.
+        (최고점·좌우 끝 지점을 잡았을 때 잘리는 문제 보정) */
+    @Override
+    public MPPointF getOffsetForDrawingAtPoint(float posX, float posY) {
+        MPPointF base = getOffset();
+        float ox = base.x, oy = base.y;
+        float w = getWidth(), h = getHeight();
+
+        if (posX + ox < 0) {
+            ox = -posX;                                   // 왼쪽 잘림 방지
+        } else if (getChartView() != null && posX + ox + w > getChartView().getWidth()) {
+            ox = getChartView().getWidth() - posX - w;    // 오른쪽 잘림 방지
+        }
+        if (posY + oy < 0) {
+            oy = 8f;                                      // 위 잘림 → 점 아래로 표시
+        }
+        return new MPPointF(ox, oy);
+    }
 }
